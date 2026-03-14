@@ -177,7 +177,7 @@ final class CanvasView: NSView {
         else { return }
 
         selectWorkflow(id: workflowID)
-        focusTile(id: id, makeTerminalFirstResponder: true)
+        focusTile(id: id, makeTerminalFirstResponder: true, bringToFront: false)
         publishWorkflowState()
     }
 
@@ -674,10 +674,12 @@ final class CanvasView: NSView {
         }
     }
 
-    private func focusTile(id: UUID, makeTerminalFirstResponder: Bool) {
+    private func focusTile(id: UUID, makeTerminalFirstResponder: Bool, bringToFront: Bool = true) {
         guard let workflow = activeWorkflow, tile(for: id) != nil else { return }
         workflow.focusedTileID = id
-        bringTileToFront(id: id)
+        if bringToFront {
+            bringTileToFront(id: id)
+        }
         updateTilePresentation()
 
         if makeTerminalFirstResponder, let tile = tile(for: id) {
