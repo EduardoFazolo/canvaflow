@@ -9,11 +9,11 @@ final class WorkflowSidebarView: NSView {
 
     private let eyebrowLabel = NSTextField(labelWithString: "WORKSPACE")
     private let titleLabel = NSTextField(labelWithString: "CanvasFlow")
-    private let summaryLabel = NSTextField(labelWithString: "Create a named workflow to begin.")
+    private let summaryLabel = NSTextField(labelWithString: "Import a folder or create one to begin.")
     private let countBadge = NSTextField(labelWithString: "0")
-    private let createButton = NSButton(title: "+ New canvas", target: nil, action: nil)
+    private let createButton = NSButton(title: "+ Add workspace", target: nil, action: nil)
     private let toggleButton = NSButton(title: "Collapse", target: nil, action: nil)
-    private let sectionLabel = NSTextField(labelWithString: "CANVASES")
+    private let sectionLabel = NSTextField(labelWithString: "WORKSPACES")
     private let scrollView = NSScrollView(frame: .zero)
     private let listView = WorkflowListView(frame: .zero)
     private let expandedViews: [NSView]
@@ -150,9 +150,9 @@ final class WorkflowSidebarView: NSView {
         if let selected = workflows.first(where: { $0.id == selectedWorkflowID }) {
             summaryLabel.stringValue = "\(selected.name) active • \(selected.terminalCount) terminal\(selected.terminalCount == 1 ? "" : "s")"
         } else if workflows.isEmpty {
-            summaryLabel.stringValue = "Create a named workflow to begin."
+            summaryLabel.stringValue = "Import a folder or create one to begin."
         } else {
-            summaryLabel.stringValue = "Choose a workflow from the stack."
+            summaryLabel.stringValue = "Choose a workspace from the left rail."
         }
 
         listView.collapsed = isCollapsed
@@ -165,7 +165,7 @@ final class WorkflowSidebarView: NSView {
         guard collapsed != isCollapsed else { return }
         isCollapsed = collapsed
         toggleButton.title = isCollapsed ? "Open" : "Collapse"
-        createButton.title = isCollapsed ? "+" : "+ New canvas"
+        createButton.title = isCollapsed ? "+" : "+ Add workspace"
         listView.collapsed = isCollapsed
 
         let expandedViews = [eyebrowLabel, titleLabel, summaryLabel, sectionLabel, countBadge]
@@ -226,7 +226,7 @@ final class WorkflowSidebarView: NSView {
         countBadge.layer?.borderWidth = 1
         countBadge.layer?.borderColor = CanvasTheme.border.withAlphaComponent(0.82).cgColor
 
-        configureButton(createButton, title: "+ New canvas")
+        configureButton(createButton, title: "+ Add workspace")
         createButton.target = self
         createButton.action = #selector(handleCreateWorkflow)
 

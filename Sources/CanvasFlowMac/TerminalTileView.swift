@@ -4,6 +4,7 @@ import SwiftTerm
 final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     let tileID: UUID
     let accent: NSColor
+    let workingDirectory: String
 
     var onRequestFocus: ((UUID) -> Void)?
     var onDragStart: ((UUID, CGPoint) -> Void)?
@@ -35,9 +36,10 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     private var currentTitle = "Terminal"
     private var hasExited = false
 
-    init(id: UUID, accent: NSColor) {
+    init(id: UUID, accent: NSColor, workingDirectory: String) {
         self.tileID = id
         self.accent = accent
+        self.workingDirectory = workingDirectory
         super.init(frame: .zero)
         setup()
         startShell()
@@ -235,8 +237,7 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     private func startShell() {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let shellIdiom = "-" + URL(fileURLWithPath: shell).lastPathComponent
-        let cwd = FileManager.default.homeDirectoryForCurrentUser.path
-        terminalView.startProcess(executable: shell, args: [], environment: nil, execName: shellIdiom, currentDirectory: cwd)
+        terminalView.startProcess(executable: shell, args: [], environment: nil, execName: shellIdiom, currentDirectory: workingDirectory)
     }
 }
 

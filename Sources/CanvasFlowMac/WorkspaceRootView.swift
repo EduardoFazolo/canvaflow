@@ -3,7 +3,6 @@ import AppKit
 final class WorkspaceRootView: NSView {
     private let sidebarView = WorkflowSidebarView(frame: .zero)
     private let canvasView = CanvasView(frame: .zero)
-    private var activeSheetController: WorkflowNameSheetController?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -62,7 +61,7 @@ final class WorkspaceRootView: NSView {
         canvasView.autoresizingMask = [.width, .height]
 
         sidebarView.onCreateWorkflow = { [weak self] in
-            self?.presentCreateWorkflowSheet()
+            self?.presentWorkspacePicker()
         }
         sidebarView.onSelectWorkflow = { [weak self] id in
             self?.canvasView.selectWorkflow(id: id)
@@ -83,16 +82,22 @@ final class WorkspaceRootView: NSView {
         canvasView.spawnInitialTerminalIfNeeded()
     }
 
-    private func presentCreateWorkflowSheet() {
-        guard activeSheetController == nil, let window else { return }
+    private func presentWorkspacePicker() {
+        guard let window else { return }
 
-        let controller = WorkflowNameSheetController(parentWindow: window) { [weak self] name in
-            defer { self?.activeSheetController = nil }
-            guard let self, let name else { return }
-            self.canvasView.createWorkflow(named: name)
+        let panel = NSOpenPanel()
+        panel.title = "Add Workspace"
+        panel.message = "Choose an existing folder or create a new one for this workspace."
+        panel.prompt = "Add Workspace"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let folderURL = panel.url else { return }
+            self?.canvasView.importWorkflow(from: folderURL)
         }
-
-        activeSheetController = controller
-        controller.begin()
     }
 }

@@ -50,8 +50,15 @@ final class CanvasView: NSView {
         onWorkflowStateChange?(workflowSummaries(), selectedWorkflowID)
     }
 
-    func createWorkflow(named name: String) {
-        let workflow = makeWorkflow(named: name)
+    func importWorkflow(from folderURL: URL) {
+        let normalizedURL = normalizedFolderURL(folderURL)
+
+        if let existingWorkflow = workflows.first(where: { normalizedFolderURL($0.folderURL) == normalizedURL }) {
+            selectWorkflow(id: existingWorkflow.id)
+            return
+        }
+
+        let workflow = makeWorkflow(for: normalizedURL)
         workflows.append(workflow)
         selectWorkflow(id: workflow.id)
     }
@@ -181,12 +188,18 @@ final class CanvasView: NSView {
         workflows.first(where: { $0.id == selectedWorkflowID })
     }
 
-    private func makeWorkflow(named name: String) -> WorkflowState {
+    private func makeWorkflow(for folderURL: URL) -> WorkflowState {
         workflowSequence += 1
+        let displayName = folderURL.lastPathComponent.isEmpty ? folderURL.path : folderURL.lastPathComponent
         return WorkflowState(
-            name: name,
+            folderURL: folderURL,
+            name: displayName,
             accent: CanvasTheme.workflowAccent(at: max(0, workflowSequence - 1))
         )
+    }
+
+    private func normalizedFolderURL(_ folderURL: URL) -> URL {
+        folderURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func workflowSummaries() -> [WorkflowSummary] {
@@ -229,7 +242,7 @@ final class CanvasView: NSView {
         )
         let tileID = UUID()
         let accent = workflow.tiles.isEmpty ? workflow.accent : CanvasTheme.workflowAccent(at: workflow.tiles.count)
-        let tileView = TerminalTileView(id: tileID, accent: accent)
+        let tileView = TerminalTileView(id: tileID, accent: accent, workingDirectory: workflow.folderURL.path)
 
         tileView.onRequestFocus = { [weak self] id in
             self?.focusTile(id: id, makeTerminalFirstResponder: false)
@@ -583,7 +596,7 @@ final class CanvasView: NSView {
             .foregroundColor: CanvasTheme.mutedText,
         ]
 
-        let labelText = "ACTIVE CANVAS"
+        let labelText = "ACTIVE WORKSPACE"
         let titleText = workflow.name
         let subtitleText = "Right click to open a terminal. Drag the header to reposition."
         let labelWidth = labelText.size(withAttributes: labelAttributes).width
@@ -641,7 +654,7 @@ final class CanvasView: NSView {
                 .font: CanvasTypography.bodyFont(size: 11, weight: .regular),
                 .foregroundColor: CanvasTheme.mutedText,
             ]
-            let emptyBodyText = "Your other canvases stay parked in the workflow rail on the left."
+            let emptyBodyText = "Your other workspaces stay parked in the left rail while this folder stays ready."
             let titleWidth = "\(workflow.name) is ready".size(withAttributes: emptyTitleAttributes).width
             let bodyLineOneWidth = "Right click anywhere on the board to open a terminal.".size(withAttributes: emptyBodyAttributes).width
             let bodyLineTwoWidth = emptyBodyText.size(withAttributes: emptyBodyAttributes).width
@@ -682,13 +695,13 @@ final class CanvasView: NSView {
             .font: CanvasTypography.bodyFont(size: 12, weight: .regular),
             .foregroundColor: CanvasTheme.mutedText,
         ]
-        let bodyText = "Use the workflow rail to create a named canvas, then open terminals inside it."
-        let titleWidth = "No workflow selected".size(withAttributes: titleAttributes).width
+        let bodyText = "Import a folder or create a new one from the left rail, then open terminals inside it."
+        let titleWidth = "No workspace selected".size(withAttributes: titleAttributes).width
         let bodyWidth = bodyText.size(withAttributes: bodyAttributes).width
         let panelWidth = max(470, max(titleWidth, bodyWidth) + (CanvasMetrics.cardInsetX * 2))
         let panel = CGRect(x: bounds.midX - (panelWidth / 2), y: bounds.midY - 58, width: panelWidth, height: 116)
         drawPanel(in: panel, fill: CanvasTheme.surface, stroke: CanvasTheme.borderStrong, radius: CanvasMetrics.cardRadius)
-        "No workflow selected".draw(
+        "No workspace selected".draw(
             at: CGPoint(x: panel.minX + CanvasMetrics.cardInsetX, y: panel.minY + 24),
             withAttributes: titleAttributes
         )

@@ -20,6 +20,7 @@ final class TileState {
 final class WorkflowState {
     let id: UUID
     let accent: NSColor
+    let folderURL: URL
     var name: String
     var camera: CameraState
     var tiles: [TileState]
@@ -28,6 +29,7 @@ final class WorkflowState {
 
     init(
         id: UUID = UUID(),
+        folderURL: URL,
         name: String,
         accent: NSColor,
         camera: CameraState = CameraState(),
@@ -36,6 +38,7 @@ final class WorkflowState {
         hasSpawnedInitialTerminal: Bool = false
     ) {
         self.id = id
+        self.folderURL = folderURL
         self.name = name
         self.accent = accent
         self.camera = camera
