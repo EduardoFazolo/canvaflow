@@ -5,6 +5,7 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     let tileID: UUID
     let accent: NSColor
     let workingDirectory: String
+    let initialCommand: String?
 
     var onRequestFocus: ((UUID) -> Void)?
     var onDragStart: ((UUID, CGPoint) -> Void)?
@@ -33,13 +34,15 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     private let bottomRightHandle = ResizeHandleView(handle: .bottomRight)
 
     private let baseFontSize: CGFloat = 13
-    private var currentTitle = "Terminal"
+    private var currentTitle: String
     private var hasExited = false
 
-    init(id: UUID, accent: NSColor, workingDirectory: String) {
+    init(id: UUID, accent: NSColor, workingDirectory: String, initialCommand: String? = nil, initialTitle: String = "Terminal") {
         self.tileID = id
         self.accent = accent
         self.workingDirectory = workingDirectory
+        self.initialCommand = initialCommand
+        self.currentTitle = initialTitle
         super.init(frame: .zero)
         setup()
         startShell()
@@ -220,7 +223,7 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
             }
         }
 
-        titleBarView.title = "Terminal"
+        titleBarView.title = currentTitle
         titleBarView.badge = "LIVE"
         titleBarView.badgeColor = accent.withAlphaComponent(0.92)
 
@@ -238,6 +241,11 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let shellIdiom = "-" + URL(fileURLWithPath: shell).lastPathComponent
         terminalView.startProcess(executable: shell, args: [], environment: nil, execName: shellIdiom, currentDirectory: workingDirectory)
+
+        guard let initialCommand else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            self?.terminalView.send(txt: initialCommand + "\n")
+        }
     }
 }
 

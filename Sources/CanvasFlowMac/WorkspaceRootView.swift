@@ -66,6 +66,9 @@ final class WorkspaceRootView: NSView {
         sidebarView.onSelectWorkflow = { [weak self] id in
             self?.canvasView.selectWorkflow(id: id)
         }
+        sidebarView.onStartThread = { [weak self] id in
+            self?.canvasView.startThread(in: id)
+        }
         sidebarView.onToggleCollapsed = { [weak self] _ in
             self?.applyLayout(animated: true)
         }

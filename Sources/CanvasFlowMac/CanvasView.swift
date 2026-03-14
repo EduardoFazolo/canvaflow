@@ -76,6 +76,17 @@ final class CanvasView: NSView {
         publishWorkflowState()
     }
 
+    func startThread(in workflowID: UUID) {
+        guard let workflow = workflows.first(where: { $0.id == workflowID }) else { return }
+        selectWorkflow(id: workflowID)
+        createTerminal(
+            at: defaultSpawnPoint(for: workflow),
+            in: workflow,
+            initialCommand: "codex",
+            initialTitle: "Codex Thread"
+        )
+    }
+
     func spawnInitialTerminalIfNeeded() {
     }
 
@@ -230,7 +241,12 @@ final class CanvasView: NSView {
         needsDisplay = true
     }
 
-    private func createTerminal(at worldPoint: CGPoint, in workflow: WorkflowState? = nil) {
+    private func createTerminal(
+        at worldPoint: CGPoint,
+        in workflow: WorkflowState? = nil,
+        initialCommand: String? = nil,
+        initialTitle: String = "Terminal"
+    ) {
         guard let workflow = workflow ?? activeWorkflow else { return }
 
         let size = CGSize(width: 620, height: 410)
@@ -242,7 +258,13 @@ final class CanvasView: NSView {
         )
         let tileID = UUID()
         let accent = workflow.tiles.isEmpty ? workflow.accent : CanvasTheme.workflowAccent(at: workflow.tiles.count)
-        let tileView = TerminalTileView(id: tileID, accent: accent, workingDirectory: workflow.folderURL.path)
+        let tileView = TerminalTileView(
+            id: tileID,
+            accent: accent,
+            workingDirectory: workflow.folderURL.path,
+            initialCommand: initialCommand,
+            initialTitle: initialTitle
+        )
 
         tileView.onRequestFocus = { [weak self] id in
             self?.focusTile(id: id, makeTerminalFirstResponder: false)
@@ -274,7 +296,7 @@ final class CanvasView: NSView {
             self?.closeTile(id: id)
         }
 
-        let tile = TileState(id: tileID, accent: accent, worldFrame: frame, title: "Terminal", tileView: tileView)
+        let tile = TileState(id: tileID, accent: accent, worldFrame: frame, title: initialTitle, tileView: tileView)
         workflow.tiles.append(tile)
 
         if workflow.id == selectedWorkflowID {
@@ -285,6 +307,17 @@ final class CanvasView: NSView {
         }
 
         publishWorkflowState()
+    }
+
+    private func defaultSpawnPoint(for workflow: WorkflowState) -> CGPoint {
+        let visibleWidth = bounds.width / max(workflow.camera.zoom, 0.001)
+        let visibleHeight = bounds.height / max(workflow.camera.zoom, 0.001)
+        let offset = CGFloat(workflow.tiles.count) * 28
+
+        return CGPoint(
+            x: workflow.camera.origin.x + (visibleWidth * 0.56) + offset,
+            y: workflow.camera.origin.y + (visibleHeight * 0.52) + offset
+        )
     }
 
     private func closeTile(id: UUID) {

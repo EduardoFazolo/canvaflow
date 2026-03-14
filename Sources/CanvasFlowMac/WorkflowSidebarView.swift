@@ -3,6 +3,7 @@ import AppKit
 final class WorkflowSidebarView: NSView {
     var onCreateWorkflow: (() -> Void)?
     var onSelectWorkflow: ((UUID) -> Void)?
+    var onStartThread: ((UUID) -> Void)?
     var onToggleCollapsed: ((Bool) -> Void)?
 
     private var workflows: [WorkflowSummary] = []
@@ -247,6 +248,9 @@ final class WorkflowSidebarView: NSView {
         listView.onSelectWorkflow = { [weak self] id in
             self?.onSelectWorkflow?(id)
         }
+        listView.onStartThread = { [weak self] id in
+            self?.onStartThread?(id)
+        }
 
         addSubview(eyebrowLabel)
         addSubview(titleLabel)
@@ -295,6 +299,7 @@ final class WorkflowSidebarView: NSView {
 
 private final class WorkflowListView: NSView {
     var onSelectWorkflow: ((UUID) -> Void)?
+    var onStartThread: ((UUID) -> Void)?
     var collapsed = false
 
     private var rowViews: [WorkflowRowView] = []
@@ -320,6 +325,9 @@ private final class WorkflowListView: NSView {
             row.compact = collapsed
             row.onSelect = { [weak self] id in
                 self?.onSelectWorkflow?(id)
+            }
+            row.onStartThread = { [weak self] id in
+                self?.onStartThread?(id)
             }
             addSubview(row)
             rowViews.append(row)
@@ -355,15 +363,49 @@ private final class WorkflowRowView: NSControl {
     var accent = CanvasTheme.cyan { didSet { needsDisplay = true } }
     var title = "Canvas" { didSet { needsDisplay = true } }
     var subtitle = "Empty" { didSet { needsDisplay = true } }
-    var selected = false { didSet { needsDisplay = true } }
-    var compact = false { didSet { needsDisplay = true } }
+    var selected = false {
+        didSet {
+            needsDisplay = true
+            updateThreadButtonAppearance(animated: true)
+        }
+    }
+    var compact = false {
+        didSet {
+            needsDisplay = true
+            updateThreadButtonAppearance(animated: false)
+        }
+    }
     var onSelect: ((UUID) -> Void)?
+    var onStartThread: ((UUID) -> Void)?
 
     private var hovered = false { didSet { needsDisplay = true } }
     private var trackingAreaRef: NSTrackingArea?
+    private let threadButton = NSButton(frame: .zero)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override var isFlipped: Bool {
         true
+    }
+
+    override func layout() {
+        super.layout()
+
+        let buttonSize: CGFloat = 24
+        threadButton.frame = CGRect(
+            x: bounds.width - 18 - buttonSize,
+            y: 10,
+            width: buttonSize,
+            height: buttonSize
+        )
     }
 
     override func updateTrackingAreas() {
@@ -389,10 +431,17 @@ private final class WorkflowRowView: NSControl {
 
     override func mouseEntered(with event: NSEvent) {
         hovered = true
+        updateThreadButtonAppearance(animated: true)
     }
 
     override func mouseExited(with event: NSEvent) {
         hovered = false
+        updateThreadButtonAppearance(animated: true)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateThreadButtonAppearance(animated: false)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -448,20 +497,66 @@ private final class WorkflowRowView: NSControl {
         ]
 
         title.draw(
-            in: CGRect(x: 28, y: 14, width: bounds.width - 92, height: 18),
+            in: CGRect(x: 28, y: 14, width: bounds.width - 126, height: 18),
             withAttributes: titleAttributes
         )
         subtitle.draw(
-            in: CGRect(x: 28, y: 35, width: bounds.width - 96, height: 14),
+            in: CGRect(x: 28, y: 35, width: bounds.width - 126, height: 14),
             withAttributes: subtitleAttributes
         )
         String(format: "%02d", index).draw(
-            in: CGRect(x: bounds.width - 38, y: 14, width: 20, height: 14),
+            in: CGRect(x: bounds.width - 46, y: 38, width: 28, height: 14),
             withAttributes: serialAttributes
         )
     }
 
     override func mouseDown(with event: NSEvent) {
         onSelect?(workflowID)
+    }
+
+    @objc
+    private func handleStartThread() {
+        onStartThread?(workflowID)
+    }
+
+    private func setup() {
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        threadButton.image = NSImage(
+            systemSymbolName: "square.and.pencil",
+            accessibilityDescription: "Start new thread"
+        )?.withSymbolConfiguration(symbolConfig)
+        threadButton.isBordered = false
+        threadButton.bezelStyle = .regularSquare
+        threadButton.imagePosition = .imageOnly
+        threadButton.imageScaling = .scaleProportionallyDown
+        threadButton.contentTintColor = CanvasTheme.titleText.withAlphaComponent(0.9)
+        threadButton.wantsLayer = true
+        threadButton.layer?.cornerRadius = 7
+        threadButton.layer?.borderWidth = 1
+        threadButton.target = self
+        threadButton.action = #selector(handleStartThread)
+        threadButton.toolTip = "Start new Codex thread in this workspace"
+        addSubview(threadButton)
+        updateThreadButtonAppearance(animated: false)
+    }
+
+    private func updateThreadButtonAppearance(animated: Bool) {
+        let visible = compact == false && (selected || hovered)
+        let alpha: CGFloat = visible ? 1 : 0
+        threadButton.isHidden = false
+        threadButton.layer?.backgroundColor = (selected ? CanvasTheme.surfaceRaised : CanvasTheme.surface).cgColor
+        threadButton.layer?.borderColor = (selected ? CanvasTheme.sidebarSelectionBorder : CanvasTheme.border.withAlphaComponent(0.72)).cgColor
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CanvasMetrics.sidebarAnimationTiming
+                threadButton.animator().alphaValue = alpha
+            }
+        } else {
+            threadButton.alphaValue = alpha
+        }
+
+        threadButton.isEnabled = visible
     }
 }
