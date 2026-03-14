@@ -6,6 +6,7 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     let accent: NSColor
     let workingDirectory: String
     let initialCommand: String?
+    let preservesExplicitTitle: Bool
 
     var onRequestFocus: ((UUID) -> Void)?
     var onDragStart: ((UUID, CGPoint) -> Void)?
@@ -36,16 +37,17 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     private let baseFontSize: CGFloat = 13
     private var currentTitle: String
     private var hasExited = false
+    private var hasStartedProcess = false
 
     init(id: UUID, accent: NSColor, workingDirectory: String, initialCommand: String? = nil, initialTitle: String = "Terminal") {
         self.tileID = id
         self.accent = accent
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
+        self.preservesExplicitTitle = initialCommand != nil
         self.currentTitle = initialTitle
         super.init(frame: .zero)
         setup()
-        startShell()
     }
 
     @available(*, unavailable)
@@ -144,10 +146,20 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
         terminalView.terminate()
     }
 
+    func ensureProcessRunning() {
+        guard hasStartedProcess == false else { return }
+        hasStartedProcess = true
+        startShell()
+    }
+
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
     }
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+        if preservesExplicitTitle {
+            return
+        }
+
         let nextTitle = title.isEmpty ? "Terminal" : title
         currentTitle = nextTitle
         titleBarView.title = nextTitle
@@ -240,12 +252,8 @@ final class TerminalTileView: NSView, LocalProcessTerminalViewDelegate {
     private func startShell() {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let shellIdiom = "-" + URL(fileURLWithPath: shell).lastPathComponent
-        terminalView.startProcess(executable: shell, args: [], environment: nil, execName: shellIdiom, currentDirectory: workingDirectory)
-
-        guard let initialCommand else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            self?.terminalView.send(txt: initialCommand + "\n")
-        }
+        let args = initialCommand.map { ["-lc", $0] } ?? []
+        terminalView.startProcess(executable: shell, args: args, environment: nil, execName: shellIdiom, currentDirectory: workingDirectory)
     }
 }
 

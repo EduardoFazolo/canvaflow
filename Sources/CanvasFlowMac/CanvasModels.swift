@@ -6,19 +6,37 @@ enum TileKind {
     case codexThread
 }
 
+enum ThreadRuntimeState {
+    case live
+    case missing
+}
+
 final class TileState {
     let id: UUID
     let kind: TileKind
     let accent: NSColor
+    let sessionName: String?
     let tileView: TerminalTileView
+    var runtimeState: ThreadRuntimeState
     var worldFrame: CGRect
     var title: String
 
-    init(id: UUID, kind: TileKind, accent: NSColor, worldFrame: CGRect, title: String, tileView: TerminalTileView) {
+    init(
+        id: UUID,
+        kind: TileKind,
+        accent: NSColor,
+        sessionName: String?,
+        runtimeState: ThreadRuntimeState = .live,
+        worldFrame: CGRect,
+        title: String,
+        tileView: TerminalTileView
+    ) {
         self.id = id
         self.kind = kind
         self.accent = accent
+        self.sessionName = sessionName
         self.tileView = tileView
+        self.runtimeState = runtimeState
         self.worldFrame = worldFrame
         self.title = title
     }
@@ -26,6 +44,7 @@ final class TileState {
 
 final class WorkflowState {
     let id: UUID
+    let accentIndex: Int
     let accent: NSColor
     let folderURL: URL
     var name: String
@@ -36,6 +55,7 @@ final class WorkflowState {
 
     init(
         id: UUID = UUID(),
+        accentIndex: Int,
         folderURL: URL,
         name: String,
         accent: NSColor,
@@ -45,6 +65,7 @@ final class WorkflowState {
         hasSpawnedInitialTerminal: Bool = false
     ) {
         self.id = id
+        self.accentIndex = accentIndex
         self.folderURL = folderURL
         self.name = name
         self.accent = accent
@@ -67,6 +88,7 @@ struct WorkflowSummary {
 struct ThreadSummary {
     let id: UUID
     let title: String
+    let runtimeState: ThreadRuntimeState
 }
 
 struct CameraState {

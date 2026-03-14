@@ -13,6 +13,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        workspaceView?.flushPersistedState()
+    }
+
     private func configureMenu() {
         let mainMenu = NSMenu()
 
@@ -49,7 +53,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         window.isOpaque = true
         window.backgroundColor = CanvasTheme.background
         window.minSize = NSSize(width: 980, height: 680)
-        window.center()
+        let restoredFrame = window.setFrameUsingName("CanvasFlowMainWindow")
+        window.setFrameAutosaveName("CanvasFlowMainWindow")
+        if restoredFrame == false {
+            window.center()
+        }
         window.contentView = workspaceView
         window.makeFirstResponder(workspaceView)
         window.makeKeyAndOrderFront(nil)

@@ -2,6 +2,7 @@ import AppKit
 
 final class CanvasView: NSView {
     var onWorkflowStateChange: (([WorkflowSummary], UUID?) -> Void)?
+    var onPersistenceStateChange: (() -> Void)?
     var overlayLeadingInset: CGFloat = 22
 
     private let minimumTileSize = CGSize(width: 320, height: 220)
@@ -12,6 +13,7 @@ final class CanvasView: NSView {
     private var workflows: [WorkflowState] = []
     private var selectedWorkflowID: UUID?
     private var workflowSequence = 0
+    private var tmuxAvailability: Bool?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -48,6 +50,7 @@ final class CanvasView: NSView {
 
     func publishWorkflowState() {
         onWorkflowStateChange?(workflowSummaries(), selectedWorkflowID)
+        onPersistenceStateChange?()
     }
 
     func importWorkflow(from folderURL: URL) {
@@ -61,6 +64,86 @@ final class CanvasView: NSView {
         let workflow = makeWorkflow(for: normalizedURL)
         workflows.append(workflow)
         selectWorkflow(id: workflow.id)
+    }
+
+    func persistenceState() -> CanvasPersistenceState {
+        CanvasPersistenceState(
+            selectedWorkflowID: selectedWorkflowID,
+            workflows: workflows.map { workflow in
+                PersistedWorkflow(
+                    id: workflow.id,
+                    accentIndex: workflow.accentIndex,
+                    folderPath: workflow.folderURL.path,
+                    cameraOrigin: PersistedPoint(workflow.camera.origin),
+                    zoom: Double(workflow.camera.zoom),
+                    focusedTileID: workflow.focusedTileID,
+                    tiles: workflow.tiles.map { tile in
+                        PersistedTile(
+                            id: tile.id,
+                            kind: persistedTileKind(for: tile.kind),
+                            title: tile.title,
+                            worldFrame: PersistedRect(tile.worldFrame),
+                            sessionName: tile.sessionName
+                        )
+                    }
+                )
+            }
+        )
+    }
+
+    func restore(from persistenceState: CanvasPersistenceState) {
+        subviews.forEach { $0.removeFromSuperview() }
+        workflows.removeAll()
+        selectedWorkflowID = nil
+
+        let fileManager = FileManager.default
+
+        workflows = persistenceState.workflows.compactMap { snapshot in
+            let folderURL = URL(fileURLWithPath: snapshot.folderPath)
+            guard fileManager.fileExists(atPath: folderURL.path) else { return nil }
+
+            var camera = CameraState()
+            camera.origin = snapshot.cameraOrigin.cgPoint
+            camera.zoom = CGFloat(snapshot.zoom)
+
+            let workflow = WorkflowState(
+                id: snapshot.id,
+                accentIndex: snapshot.accentIndex,
+                folderURL: folderURL,
+                name: folderURL.lastPathComponent.isEmpty ? folderURL.path : folderURL.lastPathComponent,
+                accent: CanvasTheme.workflowAccent(at: snapshot.accentIndex),
+                camera: camera,
+                tiles: [],
+                focusedTileID: snapshot.focusedTileID
+            )
+
+            workflow.tiles = snapshot.tiles.map { tileSnapshot in
+                let kind = tileKind(for: tileSnapshot.kind)
+                return makeTileState(
+                    id: tileSnapshot.id,
+                    kind: kind,
+                    title: tileSnapshot.title,
+                    worldFrame: tileSnapshot.worldFrame.cgRect,
+                    in: workflow,
+                    sessionName: tileSnapshot.sessionName,
+                    runtimeState: restoredRuntimeState(for: kind, sessionName: tileSnapshot.sessionName)
+                )
+            }
+
+            return workflow
+        }
+
+        workflowSequence = workflows.map(\.accentIndex).max().map { $0 + 1 } ?? 0
+
+        if let restoredSelection = persistenceState.selectedWorkflowID,
+           workflows.contains(where: { $0.id == restoredSelection }) {
+            selectedWorkflowID = restoredSelection
+        } else {
+            selectedWorkflowID = workflows.first?.id
+        }
+
+        displayActiveWorkflow()
+        publishWorkflowState()
     }
 
     func selectWorkflow(id: UUID) {
@@ -84,7 +167,6 @@ final class CanvasView: NSView {
             at: defaultSpawnPoint(for: workflow),
             in: workflow,
             kind: .codexThread,
-            initialCommand: "codex",
             initialTitle: "Thread \(nextThreadIndex)"
         )
     }
@@ -146,6 +228,7 @@ final class CanvasView: NSView {
         updateTilePresentation()
         interaction = .panning(anchor: point, initialOrigin: workflow.camera.origin)
         needsDisplay = true
+        publishWorkflowState()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -159,6 +242,7 @@ final class CanvasView: NSView {
             workflow.camera.origin = initialOrigin - delta
             relayoutTiles()
             needsDisplay = true
+            onPersistenceStateChange?()
 
         case let .draggingTile(id, anchor, initialFrame):
             let delta = (point - anchor) / workflow.camera.zoom
@@ -167,6 +251,7 @@ final class CanvasView: NSView {
             }
             relayoutTiles()
             needsDisplay = true
+            onPersistenceStateChange?()
 
         case let .resizingTile(id, handle, anchor, initialFrame):
             let delta = (point - anchor) / workflow.camera.zoom
@@ -175,6 +260,7 @@ final class CanvasView: NSView {
             }
             relayoutTiles()
             needsDisplay = true
+            onPersistenceStateChange?()
 
         case .idle:
             break
@@ -183,16 +269,18 @@ final class CanvasView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         interaction = .idle
+        onPersistenceStateChange?()
     }
 
     override func scrollWheel(with event: NSEvent) {
         guard let workflow = activeWorkflow else { return }
-
+        let anchor = convert(event.locationInWindow, from: nil)
         let isPrimarilyVertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+        let hoveringTile = tileID(at: anchor) != nil
 
-        if isPrimarilyVertical {
+        if isPrimarilyVertical && hoveringTile == false {
             let pinchAmount = (event.scrollingDeltaY * 0.008).clamped(to: -0.22...0.22)
-            zoom(by: pinchAmount, around: convert(event.locationInWindow, from: nil))
+            zoom(by: pinchAmount, around: anchor)
             return
         }
 
@@ -201,6 +289,7 @@ final class CanvasView: NSView {
         workflow.camera.origin.y += (event.scrollingDeltaY * multiplier) / workflow.camera.zoom
         relayoutTiles()
         needsDisplay = true
+        onPersistenceStateChange?()
     }
 
     override func magnify(with event: NSEvent) {
@@ -212,12 +301,14 @@ final class CanvasView: NSView {
     }
 
     private func makeWorkflow(for folderURL: URL) -> WorkflowState {
+        let accentIndex = workflowSequence
         workflowSequence += 1
         let displayName = folderURL.lastPathComponent.isEmpty ? folderURL.path : folderURL.lastPathComponent
         return WorkflowState(
+            accentIndex: accentIndex,
             folderURL: folderURL,
             name: displayName,
-            accent: CanvasTheme.workflowAccent(at: max(0, workflowSequence - 1))
+            accent: CanvasTheme.workflowAccent(at: accentIndex)
         )
     }
 
@@ -233,7 +324,7 @@ final class CanvasView: NSView {
                 name: workflow.name,
                 terminalCount: workflow.tiles.count,
                 accent: workflow.accent,
-                threadSummaries: threadTiles.map { ThreadSummary(id: $0.id, title: $0.title) },
+                threadSummaries: threadTiles.map { ThreadSummary(id: $0.id, title: $0.title, runtimeState: $0.runtimeState) },
                 focusedThreadID: selectedWorkflowID == workflow.id ? workflow.focusedTileID : nil
             )
         }
@@ -249,6 +340,7 @@ final class CanvasView: NSView {
 
         for tile in workflow.tiles {
             addSubview(tile.tileView)
+            tile.tileView.ensureProcessRunning()
         }
 
         updateTilePresentation()
@@ -260,7 +352,6 @@ final class CanvasView: NSView {
         at worldPoint: CGPoint,
         in workflow: WorkflowState? = nil,
         kind: TileKind = .terminal,
-        initialCommand: String? = nil,
         initialTitle: String = "Terminal"
     ) {
         guard let workflow = workflow ?? activeWorkflow else { return }
@@ -272,14 +363,60 @@ final class CanvasView: NSView {
             width: size.width,
             height: size.height
         )
-        let tileID = UUID()
+        let tile = makeTileState(
+            kind: kind,
+            title: initialTitle,
+            worldFrame: frame,
+            in: workflow
+        )
+        workflow.tiles.append(tile)
+
+        if workflow.id == selectedWorkflowID {
+            addSubview(tile.tileView)
+            tile.tileView.ensureProcessRunning()
+            focusTile(id: tile.id, makeTerminalFirstResponder: true)
+        } else {
+            workflow.focusedTileID = tile.id
+        }
+
+        publishWorkflowState()
+    }
+
+    private func defaultSpawnPoint(for workflow: WorkflowState) -> CGPoint {
+        let visibleWidth = bounds.width / max(workflow.camera.zoom, 0.001)
+        let visibleHeight = bounds.height / max(workflow.camera.zoom, 0.001)
+        let offset = CGFloat(workflow.tiles.count) * 28
+
+        return CGPoint(
+            x: workflow.camera.origin.x + (visibleWidth * 0.56) + offset,
+            y: workflow.camera.origin.y + (visibleHeight * 0.52) + offset
+        )
+    }
+
+    private func makeTileState(
+        id: UUID = UUID(),
+        kind: TileKind,
+        title: String,
+        worldFrame: CGRect,
+        in workflow: WorkflowState,
+        sessionName: String? = nil,
+        runtimeState: ThreadRuntimeState = .live
+    ) -> TileState {
         let accent = workflow.tiles.isEmpty ? workflow.accent : CanvasTheme.workflowAccent(at: workflow.tiles.count)
+        let resolvedSessionName: String?
+
+        if kind == .codexThread {
+            resolvedSessionName = sessionName ?? tmuxSessionName(workflowID: workflow.id, tileID: id)
+        } else {
+            resolvedSessionName = nil
+        }
+
         let tileView = TerminalTileView(
-            id: tileID,
+            id: id,
             accent: accent,
             workingDirectory: workflow.folderURL.path,
-            initialCommand: initialCommand,
-            initialTitle: initialTitle
+            initialCommand: launchCommand(for: kind, sessionName: resolvedSessionName, workingDirectory: workflow.folderURL.path),
+            initialTitle: title
         )
 
         tileView.onRequestFocus = { [weak self] id in
@@ -313,28 +450,148 @@ final class CanvasView: NSView {
             self?.closeTile(id: id)
         }
 
-        let tile = TileState(id: tileID, kind: kind, accent: accent, worldFrame: frame, title: initialTitle, tileView: tileView)
-        workflow.tiles.append(tile)
-
-        if workflow.id == selectedWorkflowID {
-            addSubview(tileView)
-            focusTile(id: tileID, makeTerminalFirstResponder: true)
-        } else {
-            workflow.focusedTileID = tileID
-        }
-
-        publishWorkflowState()
+        return TileState(
+            id: id,
+            kind: kind,
+            accent: accent,
+            sessionName: resolvedSessionName,
+            runtimeState: runtimeState,
+            worldFrame: worldFrame,
+            title: title,
+            tileView: tileView
+        )
     }
 
-    private func defaultSpawnPoint(for workflow: WorkflowState) -> CGPoint {
-        let visibleWidth = bounds.width / max(workflow.camera.zoom, 0.001)
-        let visibleHeight = bounds.height / max(workflow.camera.zoom, 0.001)
-        let offset = CGFloat(workflow.tiles.count) * 28
+    private func launchCommand(for kind: TileKind, sessionName: String?, workingDirectory: String) -> String? {
+        switch kind {
+        case .terminal:
+            return nil
+        case .codexThread:
+            let resolvedSessionName = sessionName ?? "canvasflow-codex"
+            let escapedSessionName = shellQuoted(resolvedSessionName)
+            let escapedDirectory = shellQuoted(workingDirectory)
+            let codexCommand = resolvedCodexCommand()
+            let pathBootstrap = launchPathBootstrap()
+            return "\(pathBootstrap)if command -v tmux >/dev/null 2>&1; then tmux new-session -A -s \(escapedSessionName) -c \(escapedDirectory) \(codexCommand); else \(codexCommand); fi"
+        }
+    }
 
-        return CGPoint(
-            x: workflow.camera.origin.x + (visibleWidth * 0.56) + offset,
-            y: workflow.camera.origin.y + (visibleHeight * 0.52) + offset
-        )
+    private func tmuxSessionName(workflowID: UUID, tileID: UUID) -> String {
+        "canvasflow-\(workflowID.uuidString.lowercased())-\(tileID.uuidString.lowercased())"
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func resolvedCodexCommand() -> String {
+        if let executablePath = findExecutablePath(named: "codex") {
+            return shellQuoted(executablePath)
+        }
+
+        return "codex"
+    }
+
+    private func launchPathBootstrap() -> String {
+        let directories = resolvedLaunchPathDirectories()
+        guard directories.isEmpty == false else { return "" }
+        let joinedDirectories = directories.joined(separator: ":")
+        return "PATH=\(shellQuoted(joinedDirectories)):$PATH; export PATH; "
+    }
+
+    private func resolvedLaunchPathDirectories() -> [String] {
+        var directories: [String] = []
+
+        if let codexPath = findExecutablePath(named: "codex") {
+            directories.append((codexPath as NSString).deletingLastPathComponent)
+        }
+
+        if let nodePath = findExecutablePath(named: "node") {
+            directories.append((nodePath as NSString).deletingLastPathComponent)
+        }
+
+        return Array(NSOrderedSet(array: directories)) as? [String] ?? directories
+    }
+
+    private func findExecutablePath(named executableName: String) -> String? {
+        let fileManager = FileManager.default
+        let homeDirectory = fileManager.homeDirectoryForCurrentUser.path
+        let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+
+        let candidateDirectories = pathEntries + [
+            "\(homeDirectory)/.bun/bin",
+            "\(homeDirectory)/.local/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+        ]
+
+        for directory in candidateDirectories {
+            let candidatePath = (directory as NSString).appendingPathComponent(executableName)
+            if fileManager.isExecutableFile(atPath: candidatePath) {
+                return candidatePath
+            }
+        }
+
+        return nil
+    }
+
+    private func persistedTileKind(for kind: TileKind) -> PersistedTileKind {
+        switch kind {
+        case .terminal:
+            .terminal
+        case .codexThread:
+            .codexThread
+        }
+    }
+
+    private func tileKind(for persistedKind: PersistedTileKind) -> TileKind {
+        switch persistedKind {
+        case .terminal:
+            .terminal
+        case .codexThread:
+            .codexThread
+        }
+    }
+
+    private func killSession(named sessionName: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux", "kill-session", "-t", sessionName]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try? process.run()
+    }
+
+    private func restoredRuntimeState(for kind: TileKind, sessionName: String?) -> ThreadRuntimeState {
+        guard kind == .codexThread else { return .live }
+        guard let sessionName else { return .missing }
+        return tmuxHasSession(named: sessionName) ? .live : .missing
+    }
+
+    private func tmuxHasSession(named sessionName: String) -> Bool {
+        if let tmuxAvailability, tmuxAvailability == false {
+            return false
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux", "has-session", "-t", sessionName]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            tmuxAvailability = false
+            return false
+        }
+
+        tmuxAvailability = true
+        return process.terminationStatus == 0
     }
 
     private func closeTile(id: UUID) {
@@ -343,6 +600,9 @@ final class CanvasView: NSView {
         else { return }
 
         let tile = workflow.tiles.remove(at: index)
+        if tile.kind == .codexThread, let sessionName = tile.sessionName {
+            killSession(named: sessionName)
+        }
         tile.tileView.shutdown()
         tile.tileView.removeFromSuperview()
 
@@ -421,6 +681,7 @@ final class CanvasView: NSView {
         updateTilePresentation()
 
         if makeTerminalFirstResponder, let tile = tile(for: id) {
+            tile.tileView.ensureProcessRunning()
             window?.makeFirstResponder(tile.tileView.terminalResponder)
         }
 
@@ -438,6 +699,7 @@ final class CanvasView: NSView {
         workflow.camera.origin = workflow.camera.origin + (worldBefore - worldAfter)
         relayoutTiles()
         needsDisplay = true
+        onPersistenceStateChange?()
     }
 
     private func resizedFrame(from initialFrame: CGRect, using handle: ResizeHandle, delta: CGPoint) -> CGRect {
@@ -480,9 +742,16 @@ final class CanvasView: NSView {
             guard self.bounds.contains(anchor) else { return event }
 
             let isPrimarilyVertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+            let hoveringTile = self.tileID(at: anchor) != nil
             let hasZoomModifier = event.modifierFlags.intersection([.command, .option]).isEmpty == false
 
-            guard isPrimarilyVertical || hasZoomModifier else { return event }
+            if hasZoomModifier {
+                let amount = (event.scrollingDeltaY * 0.008).clamped(to: -0.22...0.22)
+                self.zoom(by: amount, around: anchor)
+                return nil
+            }
+
+            guard isPrimarilyVertical, hoveringTile == false else { return event }
 
             let amount = (event.scrollingDeltaY * 0.008).clamped(to: -0.22...0.22)
             self.zoom(by: amount, around: anchor)
@@ -642,11 +911,6 @@ final class CanvasView: NSView {
             .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
             .foregroundColor: CanvasTheme.bodyText,
         ]
-        let hintAttributes: [NSAttributedString.Key: Any] = [
-            .font: CanvasTypography.bodyFont(size: 11, weight: .regular),
-            .foregroundColor: CanvasTheme.mutedText,
-        ]
-
         let labelText = "ACTIVE WORKSPACE"
         let titleText = workflow.name
         let subtitleText = "Right click to open a terminal. Drag the header to reposition."
@@ -678,22 +942,8 @@ final class CanvasView: NSView {
         )
         drawPanel(in: statusPanel, fill: CanvasTheme.surface, stroke: CanvasTheme.border, radius: CanvasMetrics.badgeHeight / 2)
         statusText.draw(
-            at: CGPoint(x: statusPanel.minX + 12, y: statusPanel.minY + 8),
+            at: CGPoint(x: statusPanel.minX + 12, y: statusPanel.minY + 4),
             withAttributes: statusAttributes
-        )
-
-        let hintText = "two-finger up/down to zoom"
-        let hintSize = hintText.size(withAttributes: hintAttributes)
-        let hintPanel = CGRect(
-            x: overlayLeadingInset,
-            y: bounds.maxY - 42,
-            width: hintSize.width + 24,
-            height: CanvasMetrics.badgeHeight
-        )
-        drawPanel(in: hintPanel, fill: CanvasTheme.surfaceInset, stroke: CanvasTheme.border, radius: CanvasMetrics.badgeHeight / 2)
-        hintText.draw(
-            at: CGPoint(x: hintPanel.minX + 12, y: hintPanel.minY + 8),
-            withAttributes: hintAttributes
         )
 
         if workflow.tiles.isEmpty {

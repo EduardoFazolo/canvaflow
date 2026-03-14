@@ -3,6 +3,8 @@ import AppKit
 final class WorkspaceRootView: NSView {
     private let sidebarView = WorkflowSidebarView(frame: .zero)
     private let canvasView = CanvasView(frame: .zero)
+    private let stateStore = WorkspaceStateStore()
+    private var isRestoringState = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -74,18 +76,26 @@ final class WorkspaceRootView: NSView {
         }
         sidebarView.onToggleCollapsed = { [weak self] _ in
             self?.applyLayout(animated: true)
+            self?.schedulePersistedState()
         }
         canvasView.onWorkflowStateChange = { [weak self] summaries, selectedID in
             self?.sidebarView.update(workflows: summaries, selectedWorkflowID: selectedID)
         }
+        canvasView.onPersistenceStateChange = { [weak self] in
+            self?.schedulePersistedState()
+        }
 
         addSubview(canvasView)
         addSubview(sidebarView)
-        canvasView.publishWorkflowState()
+        restorePersistedStateIfAvailable()
     }
 
     func spawnInitialTerminalIfNeeded() {
         canvasView.spawnInitialTerminalIfNeeded()
+    }
+
+    func flushPersistedState() {
+        stateStore.save(snapshotState())
     }
 
     private func presentWorkspacePicker() {
@@ -105,5 +115,31 @@ final class WorkspaceRootView: NSView {
             guard response == .OK, let folderURL = panel.url else { return }
             self?.canvasView.importWorkflow(from: folderURL)
         }
+    }
+
+    private func restorePersistedStateIfAvailable() {
+        guard let persistedState = stateStore.load() else {
+            canvasView.publishWorkflowState()
+            return
+        }
+
+        isRestoringState = true
+        sidebarView.setCollapsed(persistedState.sidebarCollapsed, animated: false)
+        applyLayout(animated: false)
+        canvasView.restore(from: persistedState.canvas)
+        isRestoringState = false
+        schedulePersistedState()
+    }
+
+    private func schedulePersistedState() {
+        guard isRestoringState == false else { return }
+        stateStore.scheduleSave(snapshotState())
+    }
+
+    private func snapshotState() -> WorkspacePersistenceState {
+        WorkspacePersistenceState(
+            sidebarCollapsed: sidebarView.isCollapsed,
+            canvas: canvasView.persistenceState()
+        )
     }
 }

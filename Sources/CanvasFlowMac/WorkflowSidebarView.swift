@@ -486,6 +486,7 @@ private final class WorkflowSectionView: NSView {
             rowView.threadID = thread.id
             rowView.title = thread.title
             rowView.accent = accent
+            rowView.runtimeState = thread.runtimeState
             rowView.onSelectThread = { [weak self] workflowID, threadID in
                 self?.onSelectThread?(workflowID, threadID)
             }
@@ -722,6 +723,7 @@ private final class ThreadRowView: NSControl {
     var threadID = UUID()
     var title = "Thread" { didSet { needsDisplay = true } }
     var accent = CanvasTheme.cyan { didSet { needsDisplay = true } }
+    var runtimeState: ThreadRuntimeState = .live { didSet { needsDisplay = true } }
     var selected = false { didSet { needsDisplay = true } }
     var onSelectThread: ((UUID, UUID) -> Void)?
 
@@ -780,9 +782,20 @@ private final class ThreadRowView: NSControl {
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: CanvasTypography.bodyFont(size: 11, weight: selected ? .semibold : .regular),
-            .foregroundColor: selected ? CanvasTheme.titleText : CanvasTheme.bodyText,
+            .foregroundColor: runtimeState == .missing ? CanvasTheme.mutedText : (selected ? CanvasTheme.titleText : CanvasTheme.bodyText),
         ]
         title.draw(in: textRect, withAttributes: attributes)
+
+        if runtimeState == .missing {
+            let badgeAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+                .foregroundColor: CanvasTheme.coral.withAlphaComponent(0.9),
+            ]
+            "missing".draw(
+                in: CGRect(x: bounds.width - 74, y: 7, width: 52, height: 14),
+                withAttributes: badgeAttributes
+            )
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
