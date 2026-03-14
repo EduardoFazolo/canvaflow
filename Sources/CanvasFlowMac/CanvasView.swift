@@ -78,13 +78,25 @@ final class CanvasView: NSView {
 
     func startThread(in workflowID: UUID) {
         guard let workflow = workflows.first(where: { $0.id == workflowID }) else { return }
+        let nextThreadIndex = workflow.tiles.filter { $0.kind == .codexThread }.count + 1
         selectWorkflow(id: workflowID)
         createTerminal(
             at: defaultSpawnPoint(for: workflow),
             in: workflow,
+            kind: .codexThread,
             initialCommand: "codex",
-            initialTitle: "Codex Thread"
+            initialTitle: "Thread \(nextThreadIndex)"
         )
+    }
+
+    func focusThread(id: UUID, in workflowID: UUID) {
+        guard let workflow = workflows.first(where: { $0.id == workflowID }),
+              workflow.tiles.contains(where: { $0.id == id })
+        else { return }
+
+        selectWorkflow(id: workflowID)
+        focusTile(id: id, makeTerminalFirstResponder: true)
+        publishWorkflowState()
     }
 
     func spawnInitialTerminalIfNeeded() {
@@ -215,11 +227,14 @@ final class CanvasView: NSView {
 
     private func workflowSummaries() -> [WorkflowSummary] {
         workflows.map { workflow in
-            WorkflowSummary(
+            let threadTiles = workflow.tiles.filter { $0.kind == .codexThread }
+            return WorkflowSummary(
                 id: workflow.id,
                 name: workflow.name,
                 terminalCount: workflow.tiles.count,
-                accent: workflow.accent
+                accent: workflow.accent,
+                threadSummaries: threadTiles.map { ThreadSummary(id: $0.id, title: $0.title) },
+                focusedThreadID: selectedWorkflowID == workflow.id ? workflow.focusedTileID : nil
             )
         }
     }
@@ -244,6 +259,7 @@ final class CanvasView: NSView {
     private func createTerminal(
         at worldPoint: CGPoint,
         in workflow: WorkflowState? = nil,
+        kind: TileKind = .terminal,
         initialCommand: String? = nil,
         initialTitle: String = "Terminal"
     ) {
@@ -291,12 +307,13 @@ final class CanvasView: NSView {
             self?.updateTile(id: id) { tile in
                 tile.title = title
             }
+            self?.publishWorkflowState()
         }
         tileView.onRequestClose = { [weak self] id in
             self?.closeTile(id: id)
         }
 
-        let tile = TileState(id: tileID, accent: accent, worldFrame: frame, title: initialTitle, tileView: tileView)
+        let tile = TileState(id: tileID, kind: kind, accent: accent, worldFrame: frame, title: initialTitle, tileView: tileView)
         workflow.tiles.append(tile)
 
         if workflow.id == selectedWorkflowID {
@@ -409,6 +426,7 @@ final class CanvasView: NSView {
 
         relayoutTiles()
         needsDisplay = true
+        publishWorkflowState()
     }
 
     private func zoom(by amount: CGFloat, around anchorPoint: CGPoint) {

@@ -1,15 +1,22 @@
 import AppKit
 import QuartzCore
 
+enum TileKind {
+    case terminal
+    case codexThread
+}
+
 final class TileState {
     let id: UUID
+    let kind: TileKind
     let accent: NSColor
     let tileView: TerminalTileView
     var worldFrame: CGRect
     var title: String
 
-    init(id: UUID, accent: NSColor, worldFrame: CGRect, title: String, tileView: TerminalTileView) {
+    init(id: UUID, kind: TileKind, accent: NSColor, worldFrame: CGRect, title: String, tileView: TerminalTileView) {
         self.id = id
+        self.kind = kind
         self.accent = accent
         self.tileView = tileView
         self.worldFrame = worldFrame
@@ -53,6 +60,13 @@ struct WorkflowSummary {
     let name: String
     let terminalCount: Int
     let accent: NSColor
+    let threadSummaries: [ThreadSummary]
+    let focusedThreadID: UUID?
+}
+
+struct ThreadSummary {
+    let id: UUID
+    let title: String
 }
 
 struct CameraState {
@@ -138,6 +152,7 @@ enum CanvasMetrics {
     static let controlGap: CGFloat = 12
     static let sectionGap: CGFloat = 20
     static let rowGap: CGFloat = 10
+    static let threadGroupGap: CGFloat = 8
     static let controlHeight: CGFloat = 30
     static let compactControlHeight: CGFloat = 28
     static let badgeMinWidth: CGFloat = 28
@@ -145,6 +160,7 @@ enum CanvasMetrics {
     static let badgeHeight: CGFloat = 20
     static let rowHeight: CGFloat = 60
     static let compactRowHeight: CGFloat = 44
+    static let threadRowHeight: CGFloat = 28
     static let controlRadius: CGFloat = 8
     static let cardRadius: CGFloat = 14
     static let cardInsetX: CGFloat = 24

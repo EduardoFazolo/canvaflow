@@ -4,6 +4,7 @@ final class WorkflowSidebarView: NSView {
     var onCreateWorkflow: (() -> Void)?
     var onSelectWorkflow: ((UUID) -> Void)?
     var onStartThread: ((UUID) -> Void)?
+    var onSelectThread: ((UUID, UUID) -> Void)?
     var onToggleCollapsed: ((Bool) -> Void)?
 
     private var workflows: [WorkflowSummary] = []
@@ -251,6 +252,9 @@ final class WorkflowSidebarView: NSView {
         listView.onStartThread = { [weak self] id in
             self?.onStartThread?(id)
         }
+        listView.onSelectThread = { [weak self] workflowID, threadID in
+            self?.onSelectThread?(workflowID, threadID)
+        }
 
         addSubview(eyebrowLabel)
         addSubview(titleLabel)
@@ -300,60 +304,212 @@ final class WorkflowSidebarView: NSView {
 private final class WorkflowListView: NSView {
     var onSelectWorkflow: ((UUID) -> Void)?
     var onStartThread: ((UUID) -> Void)?
+    var onSelectThread: ((UUID, UUID) -> Void)?
     var collapsed = false
 
-    private var rowViews: [WorkflowRowView] = []
+    private var sectionViews: [WorkflowSectionView] = []
 
     override var isFlipped: Bool {
         true
     }
 
     func update(workflows: [WorkflowSummary], selectedWorkflowID: UUID?) {
-        rowViews.forEach { $0.removeFromSuperview() }
-        rowViews.removeAll()
+        sectionViews.forEach { $0.removeFromSuperview() }
+        sectionViews.removeAll()
 
         for (index, workflow) in workflows.enumerated() {
-            let row = WorkflowRowView(frame: .zero)
-            row.workflowID = workflow.id
-            row.index = index + 1
-            row.accent = workflow.accent
-            row.title = workflow.name
-            row.subtitle = workflow.terminalCount == 0
-                ? "Empty"
-                : "\(workflow.terminalCount) terminal\(workflow.terminalCount == 1 ? "" : "s")"
-            row.selected = workflow.id == selectedWorkflowID
-            row.compact = collapsed
-            row.onSelect = { [weak self] id in
+            let sectionView = WorkflowSectionView(frame: .zero)
+            sectionView.workflowID = workflow.id
+            sectionView.index = index + 1
+            sectionView.accent = workflow.accent
+            sectionView.title = workflow.name
+            sectionView.subtitle = workflow.threadSummaries.isEmpty
+                ? "No threads"
+                : "\(workflow.threadSummaries.count) thread\(workflow.threadSummaries.count == 1 ? "" : "s")"
+            sectionView.selected = workflow.id == selectedWorkflowID
+            sectionView.compact = collapsed
+            sectionView.threads = workflow.threadSummaries
+            sectionView.focusedThreadID = workflow.focusedThreadID
+            sectionView.onSelectWorkflow = { [weak self] id in
                 self?.onSelectWorkflow?(id)
             }
-            row.onStartThread = { [weak self] id in
+            sectionView.onStartThread = { [weak self] id in
                 self?.onStartThread?(id)
             }
-            addSubview(row)
-            rowViews.append(row)
+            sectionView.onSelectThread = { [weak self] workflowID, threadID in
+                self?.onSelectThread?(workflowID, threadID)
+            }
+            addSubview(sectionView)
+            sectionViews.append(sectionView)
         }
     }
 
     func requiredHeight(for count: Int) -> CGFloat {
         guard count > 0 else { return 60 }
-        let rowHeight: CGFloat = collapsed ? CanvasMetrics.compactRowHeight : CanvasMetrics.rowHeight
-        let gap: CGFloat = CanvasMetrics.rowGap
-        return CGFloat(count) * rowHeight + CGFloat(max(0, count - 1)) * gap + 10
+        let total = sectionViews.reduce(CGFloat(0)) { partialResult, sectionView in
+            partialResult + sectionView.requiredHeight
+        }
+        return total + CGFloat(max(0, sectionViews.count - 1)) * CanvasMetrics.rowGap + 10
     }
 
     func layoutRows() {
-        let rowHeight: CGFloat = collapsed ? CanvasMetrics.compactRowHeight : CanvasMetrics.rowHeight
-        let gap: CGFloat = CanvasMetrics.rowGap
+        var currentY: CGFloat = 0
 
-        for (index, row) in rowViews.enumerated() {
-            row.compact = collapsed
-            row.frame = CGRect(
-                x: 0,
-                y: CGFloat(index) * (rowHeight + gap),
-                width: bounds.width,
-                height: rowHeight
-            )
+        for sectionView in sectionViews {
+            sectionView.compact = collapsed
+            let sectionHeight = sectionView.requiredHeight
+            sectionView.frame = CGRect(x: 0, y: currentY, width: bounds.width, height: sectionHeight)
+            currentY += sectionHeight + CanvasMetrics.rowGap
         }
+    }
+}
+
+private final class WorkflowSectionView: NSView {
+    var workflowID = UUID()
+    var index = 1
+    var accent = CanvasTheme.cyan
+    var title = "Workspace"
+    var subtitle = "No threads"
+    var selected = false
+    var compact = false {
+        didSet {
+            needsLayout = true
+            headerView.compact = compact
+        }
+    }
+    var threads: [ThreadSummary] = [] {
+        didSet {
+            rebuildThreadRows()
+            needsLayout = true
+        }
+    }
+    var focusedThreadID: UUID? {
+        didSet {
+            updateThreadSelection()
+        }
+    }
+    var onSelectWorkflow: ((UUID) -> Void)?
+    var onStartThread: ((UUID) -> Void)?
+    var onSelectThread: ((UUID, UUID) -> Void)?
+
+    private let headerView = WorkflowRowView(frame: .zero)
+    private let emptyLabel = NSTextField(labelWithString: "No threads")
+    private var threadRowViews: [ThreadRowView] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    var requiredHeight: CGFloat {
+        if compact {
+            return CanvasMetrics.compactRowHeight
+        }
+
+        let threadCount = max(1, threads.count)
+        return CanvasMetrics.rowHeight + CanvasMetrics.threadGroupGap + CGFloat(threadCount) * CanvasMetrics.threadRowHeight + 4
+    }
+
+    override func layout() {
+        super.layout()
+
+        headerView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: compact ? CanvasMetrics.compactRowHeight : CanvasMetrics.rowHeight)
+
+        guard compact == false else {
+            emptyLabel.isHidden = true
+            threadRowViews.forEach { $0.isHidden = true }
+            return
+        }
+
+        let listTop = CanvasMetrics.rowHeight + CanvasMetrics.threadGroupGap
+        if threads.isEmpty {
+            emptyLabel.isHidden = false
+            emptyLabel.frame = CGRect(x: 28, y: listTop + 2, width: bounds.width - 56, height: CanvasMetrics.threadRowHeight)
+        } else {
+            emptyLabel.isHidden = true
+            for (index, rowView) in threadRowViews.enumerated() {
+                rowView.isHidden = false
+                rowView.frame = CGRect(
+                    x: 0,
+                    y: listTop + CGFloat(index) * CanvasMetrics.threadRowHeight,
+                    width: bounds.width,
+                    height: CanvasMetrics.threadRowHeight
+                )
+            }
+        }
+    }
+
+    private func setup() {
+        headerView.onSelect = { [weak self] workflowID in
+            self?.onSelectWorkflow?(workflowID)
+        }
+        headerView.onStartThread = { [weak self] workflowID in
+            self?.onStartThread?(workflowID)
+        }
+
+        emptyLabel.font = CanvasTypography.bodyFont(size: 10.5, weight: .regular)
+        emptyLabel.textColor = CanvasTheme.mutedText.withAlphaComponent(0.8)
+
+        addSubview(headerView)
+        addSubview(emptyLabel)
+        applyModel()
+    }
+
+    private func applyModel() {
+        headerView.workflowID = workflowID
+        headerView.index = index
+        headerView.accent = accent
+        headerView.title = title
+        headerView.subtitle = subtitle
+        headerView.selected = selected
+        headerView.compact = compact
+        emptyLabel.stringValue = threads.isEmpty ? "No threads" : ""
+        updateThreadSelection()
+    }
+
+    private func rebuildThreadRows() {
+        threadRowViews.forEach { $0.removeFromSuperview() }
+        threadRowViews.removeAll()
+
+        for thread in threads {
+            let rowView = ThreadRowView(frame: .zero)
+            rowView.workflowID = workflowID
+            rowView.threadID = thread.id
+            rowView.title = thread.title
+            rowView.accent = accent
+            rowView.onSelectThread = { [weak self] workflowID, threadID in
+                self?.onSelectThread?(workflowID, threadID)
+            }
+            addSubview(rowView)
+            threadRowViews.append(rowView)
+        }
+
+        applyModel()
+    }
+
+    private func updateThreadSelection() {
+        headerView.workflowID = workflowID
+        headerView.index = index
+        headerView.accent = accent
+        headerView.title = title
+        headerView.subtitle = subtitle
+        headerView.selected = selected
+
+        for rowView in threadRowViews {
+            rowView.selected = rowView.threadID == focusedThreadID
+        }
+
+        needsLayout = true
+        needsDisplay = true
     }
 }
 
@@ -361,8 +517,8 @@ private final class WorkflowRowView: NSControl {
     var workflowID = UUID()
     var index = 1
     var accent = CanvasTheme.cyan { didSet { needsDisplay = true } }
-    var title = "Canvas" { didSet { needsDisplay = true } }
-    var subtitle = "Empty" { didSet { needsDisplay = true } }
+    var title = "Workspace" { didSet { needsDisplay = true } }
+    var subtitle = "No threads" { didSet { needsDisplay = true } }
     var selected = false {
         didSet {
             needsDisplay = true
@@ -558,5 +714,78 @@ private final class WorkflowRowView: NSControl {
         }
 
         threadButton.isEnabled = visible
+    }
+}
+
+private final class ThreadRowView: NSControl {
+    var workflowID = UUID()
+    var threadID = UUID()
+    var title = "Thread" { didSet { needsDisplay = true } }
+    var accent = CanvasTheme.cyan { didSet { needsDisplay = true } }
+    var selected = false { didSet { needsDisplay = true } }
+    var onSelectThread: ((UUID, UUID) -> Void)?
+
+    private var hovered = false { didSet { needsDisplay = true } }
+    private var trackingAreaRef: NSTrackingArea?
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+
+        let trackingAreaRef = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaRef)
+        self.trackingAreaRef = trackingAreaRef
+    }
+
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let textRect = CGRect(x: 34, y: 6, width: bounds.width - 56, height: 18)
+
+        if selected || hovered {
+            let fill = selected ? CanvasTheme.surfaceRaised.withAlphaComponent(0.92) : CanvasTheme.surface.withAlphaComponent(0.68)
+            let shellRect = CGRect(x: 20, y: 2, width: bounds.width - 24, height: bounds.height - 4)
+            let shell = NSBezierPath(roundedRect: shellRect, xRadius: 10, yRadius: 10)
+            fill.setFill()
+            shell.fill()
+        }
+
+        if selected {
+            let markerRect = CGRect(x: 20, y: 5, width: 4, height: bounds.height - 10)
+            accent.setFill()
+            NSBezierPath(roundedRect: markerRect, xRadius: 2, yRadius: 2).fill()
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.bodyFont(size: 11, weight: selected ? .semibold : .regular),
+            .foregroundColor: selected ? CanvasTheme.titleText : CanvasTheme.bodyText,
+        ]
+        title.draw(in: textRect, withAttributes: attributes)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelectThread?(workflowID, threadID)
     }
 }
