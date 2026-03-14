@@ -1,20 +1,23 @@
 import AppKit
 
 final class CanvasView: NSView {
+    var onWorkflowStateChange: (([WorkflowSummary], UUID?) -> Void)?
+    var overlayLeadingInset: CGFloat = 22
+
     private let minimumTileSize = CGSize(width: 320, height: 220)
-    private var camera = CameraState()
     private var interaction: InteractionState = .idle
-    private var tiles: [TileState] = []
-    private var focusedTileID: UUID?
     private var pendingSpawnWorldPoint: CGPoint = .zero
-    private var hasSpawnedInitialTerminal = false
     private var scrollMonitor: Any?
     private var magnifyMonitor: Any?
+    private var workflows: [WorkflowState] = []
+    private var selectedWorkflowID: UUID?
+    private var workflowSequence = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        layer?.masksToBounds = true
     }
 
     @available(*, unavailable)
@@ -39,15 +42,34 @@ final class CanvasView: NSView {
         true
     }
 
-    func spawnInitialTerminalIfNeeded() {
-        guard !hasSpawnedInitialTerminal else { return }
-        hasSpawnedInitialTerminal = true
+    override var wantsDefaultClipping: Bool {
+        true
+    }
 
-        let center = CGPoint(
-            x: camera.origin.x + bounds.width / (2 * camera.zoom),
-            y: camera.origin.y + bounds.height / (2 * camera.zoom)
-        )
-        createTerminal(at: center)
+    func publishWorkflowState() {
+        onWorkflowStateChange?(workflowSummaries(), selectedWorkflowID)
+    }
+
+    func createWorkflow(named name: String) {
+        let workflow = makeWorkflow(named: name)
+        workflows.append(workflow)
+        selectWorkflow(id: workflow.id)
+    }
+
+    func selectWorkflow(id: UUID) {
+        guard workflows.contains(where: { $0.id == id }) else { return }
+        guard selectedWorkflowID != id else {
+            publishWorkflowState()
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        selectedWorkflowID = id
+        displayActiveWorkflow()
+        publishWorkflowState()
+    }
+
+    func spawnInitialTerminalIfNeeded() {
     }
 
     override func viewDidMoveToWindow() {
@@ -57,6 +79,8 @@ final class CanvasView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        guard activeWorkflow != nil else { return nil }
+
         let point = convert(event.locationInWindow, from: nil)
         guard tileID(at: point) == nil else { return nil }
 
@@ -81,29 +105,33 @@ final class CanvasView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard let workflow = activeWorkflow else { return }
+
         window?.makeFirstResponder(self)
 
         let point = convert(event.locationInWindow, from: nil)
         guard tileID(at: point) == nil else { return }
 
-        focusedTileID = nil
+        workflow.focusedTileID = nil
         updateTilePresentation()
-        interaction = .panning(anchor: point, initialOrigin: camera.origin)
+        interaction = .panning(anchor: point, initialOrigin: workflow.camera.origin)
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard let workflow = activeWorkflow else { return }
+
         let point = convert(event.locationInWindow, from: nil)
 
         switch interaction {
         case let .panning(anchor, initialOrigin):
-            let delta = (point - anchor) / camera.zoom
-            camera.origin = initialOrigin - delta
+            let delta = (point - anchor) / workflow.camera.zoom
+            workflow.camera.origin = initialOrigin - delta
             relayoutTiles()
             needsDisplay = true
 
         case let .draggingTile(id, anchor, initialFrame):
-            let delta = (point - anchor) / camera.zoom
+            let delta = (point - anchor) / workflow.camera.zoom
             updateTile(id: id) { tile in
                 tile.worldFrame.origin = initialFrame.origin + delta
             }
@@ -111,7 +139,7 @@ final class CanvasView: NSView {
             needsDisplay = true
 
         case let .resizingTile(id, handle, anchor, initialFrame):
-            let delta = (point - anchor) / camera.zoom
+            let delta = (point - anchor) / workflow.camera.zoom
             updateTile(id: id) { tile in
                 tile.worldFrame = resizedFrame(from: initialFrame, using: handle, delta: delta)
             }
@@ -128,6 +156,8 @@ final class CanvasView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard let workflow = activeWorkflow else { return }
+
         let isPrimarilyVertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
 
         if isPrimarilyVertical {
@@ -137,8 +167,8 @@ final class CanvasView: NSView {
         }
 
         let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 1.0 : 12.0
-        camera.origin.x += (event.scrollingDeltaX * multiplier) / camera.zoom
-        camera.origin.y += (event.scrollingDeltaY * multiplier) / camera.zoom
+        workflow.camera.origin.x += (event.scrollingDeltaX * multiplier) / workflow.camera.zoom
+        workflow.camera.origin.y += (event.scrollingDeltaY * multiplier) / workflow.camera.zoom
         relayoutTiles()
         needsDisplay = true
     }
@@ -147,7 +177,49 @@ final class CanvasView: NSView {
         zoom(by: event.magnification, around: convert(event.locationInWindow, from: nil))
     }
 
-    private func createTerminal(at worldPoint: CGPoint) {
+    private var activeWorkflow: WorkflowState? {
+        workflows.first(where: { $0.id == selectedWorkflowID })
+    }
+
+    private func makeWorkflow(named name: String) -> WorkflowState {
+        workflowSequence += 1
+        return WorkflowState(
+            name: name,
+            accent: CanvasTheme.workflowAccent(at: max(0, workflowSequence - 1))
+        )
+    }
+
+    private func workflowSummaries() -> [WorkflowSummary] {
+        workflows.map { workflow in
+            WorkflowSummary(
+                id: workflow.id,
+                name: workflow.name,
+                terminalCount: workflow.tiles.count,
+                accent: workflow.accent
+            )
+        }
+    }
+
+    private func displayActiveWorkflow() {
+        subviews.forEach { $0.removeFromSuperview() }
+
+        guard let workflow = activeWorkflow else {
+            needsDisplay = true
+            return
+        }
+
+        for tile in workflow.tiles {
+            addSubview(tile.tileView)
+        }
+
+        updateTilePresentation()
+        relayoutTiles()
+        needsDisplay = true
+    }
+
+    private func createTerminal(at worldPoint: CGPoint, in workflow: WorkflowState? = nil) {
+        guard let workflow = workflow ?? activeWorkflow else { return }
+
         let size = CGSize(width: 620, height: 410)
         let frame = CGRect(
             x: worldPoint.x - size.width / 2,
@@ -156,7 +228,7 @@ final class CanvasView: NSView {
             height: size.height
         )
         let tileID = UUID()
-        let accent = tiles.isEmpty ? CanvasTheme.emerald : CanvasTheme.cyan
+        let accent = workflow.tiles.isEmpty ? workflow.accent : CanvasTheme.workflowAccent(at: workflow.tiles.count)
         let tileView = TerminalTileView(id: tileID, accent: accent)
 
         tileView.onRequestFocus = { [weak self] id in
@@ -188,25 +260,35 @@ final class CanvasView: NSView {
         tileView.onRequestClose = { [weak self] id in
             self?.closeTile(id: id)
         }
-        addSubview(tileView)
+
         let tile = TileState(id: tileID, accent: accent, worldFrame: frame, title: "Terminal", tileView: tileView)
-        tiles.append(tile)
-        focusTile(id: tileID, makeTerminalFirstResponder: true)
-        relayoutTiles()
-        needsDisplay = true
+        workflow.tiles.append(tile)
+
+        if workflow.id == selectedWorkflowID {
+            addSubview(tileView)
+            focusTile(id: tileID, makeTerminalFirstResponder: true)
+        } else {
+            workflow.focusedTileID = tileID
+        }
+
+        publishWorkflowState()
     }
 
     private func closeTile(id: UUID) {
-        guard let index = tiles.firstIndex(where: { $0.id == id }) else { return }
-        let tile = tiles.remove(at: index)
+        guard let workflow = activeWorkflow,
+              let index = workflow.tiles.firstIndex(where: { $0.id == id })
+        else { return }
+
+        let tile = workflow.tiles.remove(at: index)
         tile.tileView.shutdown()
         tile.tileView.removeFromSuperview()
 
-        if focusedTileID == id {
-            focusedTileID = tiles.last?.id
+        if workflow.focusedTileID == id {
+            workflow.focusedTileID = workflow.tiles.last?.id
         }
 
         updateTilePresentation()
+        publishWorkflowState()
         needsDisplay = true
     }
 
@@ -218,9 +300,13 @@ final class CanvasView: NSView {
     }
 
     private func dragTile(id: UUID, windowPoint: CGPoint) {
-        guard case let .draggingTile(activeID, anchor, initialFrame) = interaction, activeID == id else { return }
+        guard let workflow = activeWorkflow,
+              case let .draggingTile(activeID, anchor, initialFrame) = interaction,
+              activeID == id
+        else { return }
+
         let point = convert(windowPoint, from: nil)
-        let delta = (point - anchor) / camera.zoom
+        let delta = (point - anchor) / workflow.camera.zoom
         updateTile(id: id) { tile in
             tile.worldFrame.origin = initialFrame.origin + delta
         }
@@ -242,13 +328,14 @@ final class CanvasView: NSView {
     }
 
     private func resizeTile(id: UUID, handle: ResizeHandle, windowPoint: CGPoint) {
-        guard case let .resizingTile(activeID, activeHandle, anchor, initialFrame) = interaction,
+        guard let workflow = activeWorkflow,
+              case let .resizingTile(activeID, activeHandle, anchor, initialFrame) = interaction,
               activeID == id,
               activeHandle == handle
         else { return }
 
         let point = convert(windowPoint, from: nil)
-        let delta = (point - anchor) / camera.zoom
+        let delta = (point - anchor) / workflow.camera.zoom
         updateTile(id: id) { tile in
             tile.worldFrame = resizedFrame(from: initialFrame, using: handle, delta: delta)
         }
@@ -265,8 +352,8 @@ final class CanvasView: NSView {
     }
 
     private func focusTile(id: UUID, makeTerminalFirstResponder: Bool) {
-        guard tile(for: id) != nil else { return }
-        focusedTileID = id
+        guard let workflow = activeWorkflow, tile(for: id) != nil else { return }
+        workflow.focusedTileID = id
         bringTileToFront(id: id)
         updateTilePresentation()
 
@@ -279,10 +366,12 @@ final class CanvasView: NSView {
     }
 
     private func zoom(by amount: CGFloat, around anchorPoint: CGPoint) {
+        guard let workflow = activeWorkflow else { return }
+
         let worldBefore = viewToWorld(anchorPoint)
-        camera.zoom = (camera.zoom * (1.0 + amount)).clamped(to: 0.45...2.4)
+        workflow.camera.zoom = (workflow.camera.zoom * (1.0 + amount)).clamped(to: 0.45...2.4)
         let worldAfter = viewToWorld(anchorPoint)
-        camera.origin = camera.origin + (worldBefore - worldAfter)
+        workflow.camera.origin = workflow.camera.origin + (worldBefore - worldAfter)
         relayoutTiles()
         needsDisplay = true
     }
@@ -348,30 +437,37 @@ final class CanvasView: NSView {
     }
 
     private func relayoutTiles() {
-        for (index, tile) in tiles.enumerated() {
-            tile.tileView.frame = tile.worldFrame.scaled(from: camera.origin, zoom: camera.zoom)
+        guard let workflow = activeWorkflow else { return }
+
+        for (index, tile) in workflow.tiles.enumerated() {
+            tile.tileView.frame = tile.worldFrame.scaled(from: workflow.camera.origin, zoom: workflow.camera.zoom)
             tile.tileView.layer?.zPosition = CGFloat(index)
-            tile.tileView.applyScale(camera.zoom, focused: tile.id == focusedTileID)
+            tile.tileView.applyScale(workflow.camera.zoom, focused: tile.id == workflow.focusedTileID)
         }
     }
 
     private func updateTilePresentation() {
-        for tile in tiles {
-            tile.tileView.applyScale(camera.zoom, focused: tile.id == focusedTileID)
+        guard let workflow = activeWorkflow else { return }
+
+        for tile in workflow.tiles {
+            tile.tileView.applyScale(workflow.camera.zoom, focused: tile.id == workflow.focusedTileID)
         }
     }
 
     private func bringTileToFront(id: UUID) {
-        guard let index = tiles.firstIndex(where: { $0.id == id }) else { return }
-        let tile = tiles.remove(at: index)
-        tiles.append(tile)
-        for (zIndex, candidate) in tiles.enumerated() {
+        guard let workflow = activeWorkflow,
+              let index = workflow.tiles.firstIndex(where: { $0.id == id })
+        else { return }
+
+        let tile = workflow.tiles.remove(at: index)
+        workflow.tiles.append(tile)
+        for (zIndex, candidate) in workflow.tiles.enumerated() {
             candidate.tileView.layer?.zPosition = CGFloat(zIndex)
         }
     }
 
     private func tile(for id: UUID) -> TileState? {
-        tiles.first(where: { $0.id == id })
+        activeWorkflow?.tiles.first(where: { $0.id == id })
     }
 
     private func updateTile(id: UUID, update: (TileState) -> Void) {
@@ -380,32 +476,40 @@ final class CanvasView: NSView {
     }
 
     private func tileID(at point: CGPoint) -> UUID? {
-        for tile in tiles.reversed() where tile.tileView.frame.contains(point) {
+        guard let workflow = activeWorkflow else { return nil }
+
+        for tile in workflow.tiles.reversed() where tile.tileView.frame.contains(point) {
             return tile.id
         }
         return nil
     }
 
     private func worldToView(_ point: CGPoint) -> CGPoint {
-        CGPoint(
-            x: (point.x - camera.origin.x) * camera.zoom,
-            y: (point.y - camera.origin.y) * camera.zoom
+        guard let workflow = activeWorkflow else { return point }
+
+        return CGPoint(
+            x: (point.x - workflow.camera.origin.x) * workflow.camera.zoom,
+            y: (point.y - workflow.camera.origin.y) * workflow.camera.zoom
         )
     }
 
     private func viewToWorld(_ point: CGPoint) -> CGPoint {
-        CGPoint(
-            x: camera.origin.x + point.x / camera.zoom,
-            y: camera.origin.y + point.y / camera.zoom
+        guard let workflow = activeWorkflow else { return point }
+
+        return CGPoint(
+            x: workflow.camera.origin.x + point.x / workflow.camera.zoom,
+            y: workflow.camera.origin.y + point.y / workflow.camera.zoom
         )
     }
 
     private func visibleWorldRect() -> CGRect {
-        CGRect(
-            x: camera.origin.x,
-            y: camera.origin.y,
-            width: bounds.width / camera.zoom,
-            height: bounds.height / camera.zoom
+        guard let workflow = activeWorkflow else { return bounds }
+
+        return CGRect(
+            x: workflow.camera.origin.x,
+            y: workflow.camera.origin.y,
+            width: bounds.width / workflow.camera.zoom,
+            height: bounds.height / workflow.camera.zoom
         )
     }
 
@@ -415,10 +519,12 @@ final class CanvasView: NSView {
     }
 
     private func drawGrid(in rect: CGRect) {
+        guard let workflow = activeWorkflow else { return }
+
         let visible = visibleWorldRect()
         var spacing: CGFloat = 26
 
-        while spacing * camera.zoom < 16 {
+        while spacing * workflow.camera.zoom < 16 {
             spacing *= 2
         }
 
@@ -428,7 +534,7 @@ final class CanvasView: NSView {
         let startY = floor(visible.minY / spacing) * spacing
         let endY = visible.maxY + spacing
 
-        let minorSize = max(1.6, min(2.2, camera.zoom * 1.15))
+        let minorSize = max(1.6, min(2.2, workflow.camera.zoom * 1.15))
         let majorSize = minorSize + 0.4
 
         var x = startX
@@ -449,16 +555,23 @@ final class CanvasView: NSView {
     }
 
     private func drawOverlay() {
+        if activeWorkflow == nil {
+            drawNoWorkflowOverlay()
+            return
+        }
+
+        guard let workflow = activeWorkflow else { return }
+
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: workflow.accent.withAlphaComponent(0.82),
+        ]
         let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .semibold),
+            .font: CanvasTypography.displayFont(size: 16),
             .foregroundColor: CanvasTheme.titleText,
         ]
-        let eyebrowAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: CanvasTheme.mutedText,
-        ]
         let subtitleAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .font: CanvasTypography.bodyFont(size: 10.5, weight: .regular),
             .foregroundColor: CanvasTheme.mutedText,
         ]
         let statusAttributes: [NSAttributedString.Key: Any] = [
@@ -466,62 +579,86 @@ final class CanvasView: NSView {
             .foregroundColor: CanvasTheme.bodyText,
         ]
         let hintAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .font: CanvasTypography.bodyFont(size: 11, weight: .regular),
             .foregroundColor: CanvasTheme.mutedText,
         ]
 
-        let titleText = "CANVASFLOW"
-        let eyebrowText = "native terminal canvas"
-        let subtitleText = "right click: new terminal   |   drag header: move"
+        let labelText = "ACTIVE CANVAS"
+        let titleText = workflow.name
+        let subtitleText = "Right click to open a terminal. Drag the header to reposition."
+        let labelWidth = labelText.size(withAttributes: labelAttributes).width
         let titleWidth = titleText.size(withAttributes: titleAttributes).width
-        let eyebrowWidth = eyebrowText.size(withAttributes: eyebrowAttributes).width
         let subtitleWidth = subtitleText.size(withAttributes: subtitleAttributes).width
-        let infoWidth = max(360, max(14 + titleWidth + 26 + eyebrowWidth + 20, subtitleWidth + 28))
-        let infoPanel = CGRect(x: 22, y: 22, width: infoWidth, height: 64)
-        drawPanel(in: infoPanel, fill: CanvasTheme.panel, stroke: CanvasTheme.border, radius: 10)
-        titleText.draw(at: CGPoint(x: infoPanel.minX + 16, y: infoPanel.minY + 14), withAttributes: titleAttributes)
-        eyebrowText.draw(at: CGPoint(x: infoPanel.minX + 16 + titleWidth + 26, y: infoPanel.minY + 14), withAttributes: eyebrowAttributes)
+        let infoWidth = max(430, max(titleWidth + (CanvasMetrics.cardInsetX * 2), max(labelWidth + (CanvasMetrics.cardInsetX * 2), subtitleWidth + (CanvasMetrics.cardInsetX * 2))))
+        let infoPanel = CGRect(x: overlayLeadingInset, y: 20, width: infoWidth, height: 82)
+        drawPanel(in: infoPanel, fill: CanvasTheme.panel, stroke: CanvasTheme.border, radius: CanvasMetrics.cardRadius)
+        labelText.draw(at: CGPoint(x: infoPanel.minX + CanvasMetrics.cardInsetX, y: infoPanel.minY + 12), withAttributes: labelAttributes)
         subtitleText.draw(
-            at: CGPoint(x: infoPanel.minX + 16, y: infoPanel.minY + 36),
+            at: CGPoint(x: infoPanel.minX + CanvasMetrics.cardInsetX, y: infoPanel.minY + 52),
             withAttributes: subtitleAttributes
         )
+        titleText.draw(at: CGPoint(x: infoPanel.minX + CanvasMetrics.cardInsetX, y: infoPanel.minY + 28), withAttributes: titleAttributes)
 
-        let statusText = String(format: "zoom %.0f%%  •  %d tile%@", camera.zoom * 100, tiles.count, tiles.count == 1 ? "" : "s")
+        let statusText = String(
+            format: "zoom %.0f%%  •  %d terminal%@",
+            workflow.camera.zoom * 100,
+            workflow.tiles.count,
+            workflow.tiles.count == 1 ? "" : "s"
+        )
         let statusSize = statusText.size(withAttributes: statusAttributes)
-        let statusPanel = CGRect(x: bounds.maxX - statusSize.width - 38, y: 16, width: statusSize.width + 20, height: 28)
-        drawPanel(in: statusPanel, fill: CanvasTheme.surface, stroke: CanvasTheme.border, radius: 9)
+        let statusPanel = CGRect(
+            x: bounds.maxX - statusSize.width - CanvasMetrics.cardInsetX - 24,
+            y: 20,
+            width: statusSize.width + 24,
+            height: CanvasMetrics.badgeHeight
+        )
+        drawPanel(in: statusPanel, fill: CanvasTheme.surface, stroke: CanvasTheme.border, radius: CanvasMetrics.badgeHeight / 2)
         statusText.draw(
-            at: CGPoint(x: statusPanel.minX + 10, y: statusPanel.minY + 8),
+            at: CGPoint(x: statusPanel.minX + 12, y: statusPanel.minY + 8),
             withAttributes: statusAttributes
         )
 
         let hintText = "two-finger up/down to zoom"
         let hintSize = hintText.size(withAttributes: hintAttributes)
-        let hintPanel = CGRect(x: 22, y: bounds.maxY - 40, width: hintSize.width + 20, height: 24)
-        drawPanel(in: hintPanel, fill: CanvasTheme.surfaceInset, stroke: CanvasTheme.border, radius: 8)
+        let hintPanel = CGRect(
+            x: overlayLeadingInset,
+            y: bounds.maxY - 42,
+            width: hintSize.width + 24,
+            height: CanvasMetrics.badgeHeight
+        )
+        drawPanel(in: hintPanel, fill: CanvasTheme.surfaceInset, stroke: CanvasTheme.border, radius: CanvasMetrics.badgeHeight / 2)
         hintText.draw(
-            at: CGPoint(x: hintPanel.minX + 10, y: hintPanel.minY + 6),
+            at: CGPoint(x: hintPanel.minX + 12, y: hintPanel.minY + 8),
             withAttributes: hintAttributes
         )
 
-        if tiles.isEmpty {
+        if workflow.tiles.isEmpty {
             let emptyTitleAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .semibold),
+                .font: CanvasTypography.displayFont(size: 16),
                 .foregroundColor: CanvasTheme.titleText,
             ]
             let emptyBodyAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .font: CanvasTypography.bodyFont(size: 11, weight: .regular),
                 .foregroundColor: CanvasTheme.mutedText,
             ]
-            let emptyRect = CGRect(x: bounds.midX - 168, y: bounds.midY - 44, width: 336, height: 88)
-            drawPanel(in: emptyRect, fill: CanvasTheme.surface, stroke: CanvasTheme.borderStrong, radius: 12)
+            let emptyBodyText = "Your other canvases stay parked in the workflow rail on the left."
+            let titleWidth = "\(workflow.name) is ready".size(withAttributes: emptyTitleAttributes).width
+            let bodyLineOneWidth = "Right click anywhere on the board to open a terminal.".size(withAttributes: emptyBodyAttributes).width
+            let bodyLineTwoWidth = emptyBodyText.size(withAttributes: emptyBodyAttributes).width
+            let emptyWidth = max(420, max(titleWidth, max(bodyLineOneWidth, bodyLineTwoWidth)) + (CanvasMetrics.cardInsetX * 2))
+            let emptyRect = CGRect(x: bounds.midX - (emptyWidth / 2), y: bounds.midY - 58, width: emptyWidth, height: 116)
+            drawPanel(in: emptyRect, fill: CanvasTheme.surface, stroke: CanvasTheme.borderStrong, radius: CanvasMetrics.cardRadius)
 
-            "Create your first shell".draw(
-                at: CGPoint(x: emptyRect.minX + 18, y: emptyRect.minY + 18),
+            "\(workflow.name) is ready".draw(
+                at: CGPoint(x: emptyRect.minX + CanvasMetrics.cardInsetX, y: emptyRect.minY + 22),
                 withAttributes: emptyTitleAttributes
             )
-            "open the board menu with a right click anywhere on the canvas".draw(
-                at: CGPoint(x: emptyRect.minX + 18, y: emptyRect.minY + 40),
+            "Right click anywhere on the board to open a terminal.".draw(
+                at: CGPoint(x: emptyRect.minX + CanvasMetrics.cardInsetX, y: emptyRect.minY + 54),
+                withAttributes: emptyBodyAttributes
+            )
+            emptyBodyText.draw(
+                at: CGPoint(x: emptyRect.minX + CanvasMetrics.cardInsetX, y: emptyRect.minY + 74),
                 withAttributes: emptyBodyAttributes
             )
         }
@@ -534,5 +671,30 @@ final class CanvasView: NSView {
         stroke.setStroke()
         panelPath.lineWidth = 1
         panelPath.stroke()
+    }
+
+    private func drawNoWorkflowOverlay() {
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.displayFont(size: 18),
+            .foregroundColor: CanvasTheme.titleText,
+        ]
+        let bodyAttributes: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.bodyFont(size: 12, weight: .regular),
+            .foregroundColor: CanvasTheme.mutedText,
+        ]
+        let bodyText = "Use the workflow rail to create a named canvas, then open terminals inside it."
+        let titleWidth = "No workflow selected".size(withAttributes: titleAttributes).width
+        let bodyWidth = bodyText.size(withAttributes: bodyAttributes).width
+        let panelWidth = max(470, max(titleWidth, bodyWidth) + (CanvasMetrics.cardInsetX * 2))
+        let panel = CGRect(x: bounds.midX - (panelWidth / 2), y: bounds.midY - 58, width: panelWidth, height: 116)
+        drawPanel(in: panel, fill: CanvasTheme.surface, stroke: CanvasTheme.borderStrong, radius: CanvasMetrics.cardRadius)
+        "No workflow selected".draw(
+            at: CGPoint(x: panel.minX + CanvasMetrics.cardInsetX, y: panel.minY + 24),
+            withAttributes: titleAttributes
+        )
+        bodyText.draw(
+            at: CGPoint(x: panel.minX + CanvasMetrics.cardInsetX, y: panel.minY + 58),
+            withAttributes: bodyAttributes
+        )
     }
 }

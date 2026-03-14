@@ -5,6 +5,7 @@ Mac-native spatial terminal canvas built with Swift and AppKit.
 ## What works
 
 - Infinite-feeling canvas with a dark native desktop aesthetic
+- Workflow sidebar for switching between independent canvases
 - Trackpad-friendly panning and pinch zoom
 - Right-click context menu to create terminal tiles
 - Draggable terminal tiles with focus handling
@@ -22,6 +23,7 @@ You can also open the package directly in Xcode and run the `CanvasFlowMac` exec
 ## Controls
 
 - Right click: create or close a terminal tile
+- Sidebar: create or switch canvases/workflows
 - Drag empty space: pan the canvas
 - Pinch: zoom
 - Option + scroll: zoom fallback

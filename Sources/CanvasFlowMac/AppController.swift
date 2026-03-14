@@ -2,7 +2,7 @@ import AppKit
 
 final class AppController: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
-    private var canvasView: CanvasView?
+    private var workspaceView: WorkspaceRootView?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
@@ -40,8 +40,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             defer: false
         )
 
-        let canvasView = CanvasView(frame: frame)
-        canvasView.autoresizingMask = [.width, .height]
+        let workspaceView = WorkspaceRootView(frame: frame)
+        workspaceView.autoresizingMask = [.width, .height]
 
         window.title = "CanvasFlow"
         window.titleVisibility = .hidden
@@ -50,15 +50,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         window.backgroundColor = CanvasTheme.background
         window.minSize = NSSize(width: 980, height: 680)
         window.center()
-        window.contentView = canvasView
-        window.makeFirstResponder(canvasView)
+        window.contentView = workspaceView
+        window.makeFirstResponder(workspaceView)
         window.makeKeyAndOrderFront(nil)
 
         self.window = window
-        self.canvasView = canvasView
-
-        DispatchQueue.main.async {
-            canvasView.spawnInitialTerminalIfNeeded()
-        }
+        self.workspaceView = workspaceView
     }
 }
