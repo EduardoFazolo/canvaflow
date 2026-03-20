@@ -135,6 +135,50 @@ contextBridge.exposeInMainWorld('fs', {
     ipcRenderer.invoke('fs:delete', filePath),
 })
 
+contextBridge.exposeInMainWorld('browser', {
+  create: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
+    ipcRenderer.invoke('browser:create', nodeId, partition, url, bounds),
+
+  destroy: (nodeId: string): Promise<void> =>
+    ipcRenderer.invoke('browser:destroy', nodeId),
+
+  changeSession: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
+    ipcRenderer.invoke('browser:change-session', nodeId, partition, url, bounds),
+
+  updateBounds: (nodeId: string, bounds: { x: number; y: number; width: number; height: number }): void =>
+    ipcRenderer.send('browser:update-bounds', nodeId, bounds),
+
+  setVisible: (nodeId: string, visible: boolean): void =>
+    ipcRenderer.send('browser:set-visible', nodeId, visible),
+
+  navigate: (nodeId: string, url: string): void =>
+    ipcRenderer.send('browser:navigate', nodeId, url),
+
+  back: (nodeId: string): void => ipcRenderer.send('browser:back', nodeId),
+  forward: (nodeId: string): void => ipcRenderer.send('browser:forward', nodeId),
+  reload: (nodeId: string): void => ipcRenderer.send('browser:reload', nodeId),
+  stop: (nodeId: string): void => ipcRenderer.send('browser:stop', nodeId),
+  focus: (nodeId: string): void => ipcRenderer.send('browser:focus', nodeId),
+
+  capture: (nodeId: string): Promise<string | null> =>
+    ipcRenderer.invoke('browser:capture', nodeId),
+
+  executeJS: (nodeId: string, js: string): Promise<unknown> =>
+    ipcRenderer.invoke('browser:execute-js', nodeId, js),
+
+  onEvent: (callback: (nodeId: string, event: string, data: Record<string, unknown>) => void): () => void => {
+    const listener = (_: unknown, nodeId: string, event: string, data: Record<string, unknown>) => callback(nodeId, event, data)
+    ipcRenderer.on('browser:event', listener)
+    return () => ipcRenderer.removeListener('browser:event', listener)
+  },
+
+  onCanvasEvent: (callback: (nodeId: string, channel: string, data: Record<string, unknown>) => void): () => void => {
+    const listener = (_: unknown, nodeId: string, channel: string, data: Record<string, unknown>) => callback(nodeId, channel, data)
+    ipcRenderer.on('browser:canvas-event', listener)
+    return () => ipcRenderer.removeListener('browser:canvas-event', listener)
+  },
+})
+
 contextBridge.exposeInMainWorld('app', {
   onShortcut: (cb: (name: string) => void) => {
     const listener = (_: unknown, name: string) => cb(name)

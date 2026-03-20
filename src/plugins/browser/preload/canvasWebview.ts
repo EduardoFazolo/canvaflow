@@ -1,5 +1,8 @@
 import { ipcRenderer } from 'electron'
 
+// nodeId is injected via additionalArguments by the main process
+const nodeId = process.argv.find((a) => a.startsWith('--canvaflow-node-id='))?.split('=')[1] ?? ''
+
 // Detect double-tap anywhere in the webview and signal the host canvas to zoom-fit this node.
 let lastTapTime = 0
 document.addEventListener('pointerdown', (e) => {
@@ -8,9 +11,9 @@ document.addEventListener('pointerdown', (e) => {
   if (now - lastTapTime < 350) {
     lastTapTime = 0
     if (e.metaKey && e.shiftKey) {
-      ipcRenderer.sendToHost('canvas:zoom-exit', {})
+      ipcRenderer.send('browser:canvas-event', nodeId, 'canvas:zoom-exit', {})
     } else {
-      ipcRenderer.sendToHost('canvas:double-tap', {})
+      ipcRenderer.send('browser:canvas-event', nodeId, 'canvas:double-tap', {})
     }
   } else {
     lastTapTime = now
@@ -23,7 +26,7 @@ document.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return
   e.preventDefault()
   e.stopPropagation()
-  ipcRenderer.sendToHost('canvas:wheel', {
+  ipcRenderer.send('browser:canvas-event', nodeId, 'canvas:wheel', {
     deltaY: e.deltaY,
     clientX: e.clientX,
     clientY: e.clientY,

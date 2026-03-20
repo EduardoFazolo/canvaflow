@@ -12,22 +12,6 @@ import {
   ContextMenuItem, ContextMenuSeparator, ContextMenuSub
 } from './ui/context-menu'
 
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      webview: React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
-        src?: string
-        partition?: string
-        allowpopups?: string
-        nodeintegration?: string
-        disablewebsecurity?: string
-        preload?: string
-        ref?: React.Ref<HTMLElement>
-      }
-    }
-  }
-}
-
 const TITLE_H = 32
 const TOOLBAR_H = 36
 
@@ -134,7 +118,6 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
             overflow: 'hidden',
           }}
         >
-          {/* Built-in options */}
           {(['default', 'private'] as const).map((opt) => (
             <div
               key={opt}
@@ -170,7 +153,6 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
             </div>
           ))}
 
-          {/* Named sessions */}
           {sessions.length > 0 && (
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0' }} />
           )}
@@ -198,7 +180,6 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
             </div>
           ))}
 
-          {/* New session */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '2px 0' }} />
           {creating ? (
             <div style={{ padding: '6px 8px', display: 'flex', gap: 6 }}>
@@ -294,26 +275,25 @@ interface Props {
 }
 
 export function BrowserNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, add, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, remove, bringToFront, sendToBack, add, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
-  const webviewRef = useRef<any>(null)
+  const isActiveWorkspace = useNodeStore((s) =>
+    s.workspaceNodes.get(s.activeWorkspaceId)?.has(node.id) ?? false
+  )
+
   const webviewAreaRef = useRef<HTMLDivElement>(null)
 
   const sessionId = node.props.sessionId as string | undefined
   const partition = getPartition(sessionId, node.id)
+  const partitionRef = useRef(partition)
 
-  // Tracks the current URL for use when the webview remounts (e.g. session change)
+  // Current URL tracked without re-rendering
   const webviewSrcRef = useRef<string>((node.props.url as string) || 'https://google.com')
 
-  const [canvasPreloadPath, setCanvasPreloadPath] = useState<string | null>(null)
-  useEffect(() => { window.app.canvasWebviewPreloadPath().then(setCanvasPreloadPath) }, [])
-
-  // Frozen on mount — changing this ref never re-navigates the webview
-  const initialUrl = useRef<string>((node.props.url as string) || 'https://google.com')
-
-  const [urlBar, setUrlBar] = useState<string>(initialUrl.current)
+  const [urlBar, setUrlBar] = useState<string>(webviewSrcRef.current)
   const [loading, setLoading] = useState(false)
   const [thumbnail, setThumbnail] = useState<string | null>(null)
+  const [viewCreated, setViewCreated] = useState(false)
 
   // Track camera zoom without re-rendering on every change
   const cameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
@@ -321,10 +301,184 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     useCameraStore.getState().camera.zoom < 0.3
   )
 
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  const getBounds = useCallback(() => {
+    const el = webviewAreaRef.current
+    if (!el) return null
+    const rect = el.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    return { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+  }, [])
+
+  const sendBounds = useCallback(() => {
+    const bounds = getBounds()
+    if (!bounds) return
+    window.browser.updateBounds(node.id, bounds)
+  }, [node.id, getBounds])
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle: create / destroy WebContentsView
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const bounds = getBounds() ?? { x: 0, y: 0, width: Math.round(node.width), height: Math.round(node.height - TITLE_H - TOOLBAR_H) }
+    window.browser.create(node.id, partition, webviewSrcRef.current, bounds).then(() => {
+      setViewCreated(true)
+    })
+    return () => {
+      window.browser.destroy(node.id)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally mount/unmount only
+
+  // ---------------------------------------------------------------------------
+  // Session changes: recreate with new partition
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!viewCreated) return
+    if (partition === partitionRef.current) return
+    partitionRef.current = partition
+    const bounds = getBounds() ?? { x: 0, y: 0, width: Math.round(node.width), height: Math.round(node.height - TITLE_H - TOOLBAR_H) }
+    window.browser.changeSession(node.id, partition, webviewSrcRef.current, bounds)
+  }, [partition, viewCreated, node.id, node.width, node.height, getBounds])
+
+  // ---------------------------------------------------------------------------
+  // Visibility: show/hide based on activation + workspace + thumbnail mode
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!viewCreated) return
+    const shouldShow = isActivated && isActiveWorkspace && !isThumbnailMode
+    window.browser.setVisible(node.id, shouldShow)
+    if (shouldShow) {
+      // Re-sync bounds when becoming visible (camera may have moved while hidden)
+      requestAnimationFrame(sendBounds)
+    }
+  }, [isActivated, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, sendBounds])
+
+  // ---------------------------------------------------------------------------
+  // Bounds: update when camera moves or node resizes
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const onCameraChange = () => requestAnimationFrame(sendBounds)
+    const unsub = useCameraStore.subscribe(onCameraChange)
+    window.addEventListener('resize', onCameraChange)
+    return () => {
+      unsub()
+      window.removeEventListener('resize', onCameraChange)
+    }
+  }, [sendBounds])
+
+  // Update bounds when node dimensions change
+  useEffect(() => {
+    if (!viewCreated) return
+    requestAnimationFrame(sendBounds)
+  }, [node.width, node.height, node.x, node.y, viewCreated, sendBounds])
+
+  // ---------------------------------------------------------------------------
+  // Thumbnail mode
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const unsub = useCameraStore.subscribe((s) => {
+      const zoom = s.camera.zoom
+      const wasBelow = cameraZoomRef.current < 0.3
+      const isBelow = zoom < 0.3
+
+      if (!wasBelow && isBelow) {
+        // Transitioning to thumbnail: capture screenshot
+        window.browser.capture(node.id).then((dataUrl) => {
+          if (dataUrl) setThumbnail(dataUrl)
+        })
+        setIsThumbnailMode(true)
+      }
+
+      if (wasBelow && !isBelow) {
+        setIsThumbnailMode(false)
+      }
+
+      cameraZoomRef.current = zoom
+    })
+    return unsub
+  }, [node.id])
+
+  // ---------------------------------------------------------------------------
+  // Events from main process
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const unsub = window.browser.onEvent((eventNodeId, eventName, data) => {
+      if (eventNodeId !== node.id) return
+
+      if (eventName === 'did-start-loading') {
+        setLoading(true)
+      } else if (eventName === 'did-stop-loading') {
+        setLoading(false)
+        const url = (data as any).url as string
+        if (url) {
+          setUrlBar(url)
+          webviewSrcRef.current = url
+          update(node.id, { props: { ...useNodeStore.getState().nodes.get(node.id)?.props, url } })
+        }
+      } else if (eventName === 'did-navigate' || eventName === 'did-navigate-in-page') {
+        const url = (data as any).url as string
+        if (url) {
+          setUrlBar(url)
+          webviewSrcRef.current = url
+          update(node.id, { props: { ...useNodeStore.getState().nodes.get(node.id)?.props, url } })
+        }
+      } else if (eventName === 'page-title-updated') {
+        const title = (data as any).title as string
+        if (title) update(node.id, { title })
+      } else if (eventName === 'did-fail-load') {
+        setLoading(false)
+      } else if (eventName === 'new-window') {
+        const url = (data as any).url as string
+        if (url) add('browser', node.x + 40, node.y + 40, { url })
+      } else if (eventName === 'focus') {
+        useActivationStore.getState().activate(node.id)
+        setFocusedNodeId(node.id)
+      }
+    })
+    return unsub
+  }, [node.id, node.x, node.y, update, add, setFocusedNodeId])
+
+  // ---------------------------------------------------------------------------
+  // Canvas gesture events from WebContentsView preload
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const unsub = window.browser.onCanvasEvent((eventNodeId, channel, data) => {
+      if (eventNodeId !== node.id) return
+      if (channel === 'canvas:double-tap') zoomFitNode(node.id)
+      if (channel === 'canvas:zoom-exit') zoomExit()
+      if (channel === 'canvas:wheel') {
+        const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = data as any
+        const wvRect = webviewAreaRef.current?.getBoundingClientRect()
+        if (!wvRect) return
+        const scaleX = viewportWidth ? wvRect.width / viewportWidth : 1
+        const scaleY = viewportHeight ? wvRect.height / viewportHeight : 1
+        const hostX = wvRect.left + clientX * scaleX
+        const hostY = wvRect.top + clientY * scaleY
+        useCameraStore.getState().zoomAt(hostX, hostY, deltaY)
+      }
+    })
+    return unsub
+  }, [node.id])
+
+  // ---------------------------------------------------------------------------
+  // Paste handler
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     registerBrowserPaster(node.id, async (text: string) => {
       useNodeStore.getState().setFocusedNodeId(node.id)
-      try { ;(webviewRef.current as any)?.focus() } catch {}
+      window.browser.focus(node.id)
 
       const js = `
         (() => {
@@ -384,7 +538,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       `
 
       try {
-        return Boolean(await (webviewRef.current as any)?.executeJavaScript(js))
+        return Boolean(await window.browser.executeJS(node.id, js))
       } catch {
         return false
       }
@@ -393,160 +547,25 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     return () => unregisterBrowserPaster(node.id)
   }, [node.id])
 
-  // Subscribe to camera zoom changes for thumbnail mode
-  useEffect(() => {
-    const unsub = useCameraStore.subscribe((s) => {
-      const zoom = s.camera.zoom
-      const wasBelow = cameraZoomRef.current < 0.3
-      const isBelow = zoom < 0.3
+  // ---------------------------------------------------------------------------
+  // Controls
+  // ---------------------------------------------------------------------------
 
-      // Transitioning from active → thumbnail: capture screenshot
-      if (!wasBelow && isBelow) {
-        if (webviewRef.current) {
-          try {
-            ;(webviewRef.current as any)
-              .capturePage()
-              .then((img: any) => {
-                setThumbnail(img.toDataURL())
-              })
-              .catch(() => {
-                // capturePage may fail if webview isn't ready; that's OK
-              })
-          } catch {
-            // ignore
-          }
-        }
-        setIsThumbnailMode(true)
-      }
-
-      // Transitioning from thumbnail → active
-      if (wasBelow && !isBelow) {
-        setIsThumbnailMode(false)
-      }
-
-      cameraZoomRef.current = zoom
-    })
-    return unsub
-  }, [])
-
-  // Attach webview event listeners after mount
-  useEffect(() => {
-    const wv = webviewRef.current
-    if (!wv) return
-
-    const onStartLoading = () => setLoading(true)
-
-    const onStopLoading = () => {
-      setLoading(false)
-      if (wv) {
-        try {
-          const url = (wv as any).getURL()
-          if (url) {
-            setUrlBar(url)
-            webviewSrcRef.current = url
-            update(node.id, { props: { ...useNodeStore.getState().nodes.get(node.id)?.props, url } })
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    const onNavigate = (e: any) => {
-      if (e.url) {
-        setUrlBar(e.url)
-        webviewSrcRef.current = e.url
-        update(node.id, { props: { ...useNodeStore.getState().nodes.get(node.id)?.props, url: e.url } })
-      }
-    }
-
-    const onNavigateInPage = (e: any) => {
-      if (e.url) {
-        setUrlBar(e.url)
-        webviewSrcRef.current = e.url
-        update(node.id, { props: { ...useNodeStore.getState().nodes.get(node.id)?.props, url: e.url } })
-      }
-    }
-
-    const onTitleUpdated = (e: any) => {
-      if (e.title) update(node.id, { title: e.title })
-    }
-
-    const onFailLoad = () => setLoading(false)
-
-    const onNewWindow = (e: any) => {
-      if (e.preventDefault) e.preventDefault()
-      if (e.url) {
-        add('browser', node.x + 40, node.y + 40, { url: e.url })
-      }
-    }
-
-    const onIpcMessage = (e: any) => {
-      if (e.channel === 'canvas:double-tap') zoomFitNode(node.id)
-      if (e.channel === 'canvas:zoom-exit') zoomExit()
-      if (e.channel === 'canvas:wheel') {
-        const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = e.args[0] ?? {}
-        const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()
-        if (!wvRect) return
-        const scaleX = viewportWidth ? wvRect.width / viewportWidth : 1
-        const scaleY = viewportHeight ? wvRect.height / viewportHeight : 1
-        const hostX = wvRect.left + clientX * scaleX
-        const hostY = wvRect.top + clientY * scaleY
-        useCameraStore.getState().zoomAt(hostX, hostY, deltaY)
-      }
-    }
-
-    wv.addEventListener('did-start-loading', onStartLoading)
-    wv.addEventListener('did-stop-loading', onStopLoading)
-    wv.addEventListener('did-navigate', onNavigate)
-    wv.addEventListener('did-navigate-in-page', onNavigateInPage)
-    wv.addEventListener('page-title-updated', onTitleUpdated)
-    wv.addEventListener('did-fail-load', onFailLoad)
-    wv.addEventListener('new-window', onNewWindow)
-    wv.addEventListener('ipc-message', onIpcMessage)
-
-    return () => {
-      wv.removeEventListener('did-start-loading', onStartLoading)
-      wv.removeEventListener('did-stop-loading', onStopLoading)
-      wv.removeEventListener('did-navigate', onNavigate)
-      wv.removeEventListener('did-navigate-in-page', onNavigateInPage)
-      wv.removeEventListener('page-title-updated', onTitleUpdated)
-      wv.removeEventListener('did-fail-load', onFailLoad)
-      wv.removeEventListener('new-window', onNewWindow)
-      wv.removeEventListener('ipc-message', onIpcMessage)
-    }
-  }, [node.id, node.x, node.y, partition, canvasPreloadPath, update, add, isActivated])
-
-
-  const handleBack = useCallback(() => {
-    if (webviewRef.current) {
-      try { ;(webviewRef.current as any).goBack() } catch { /* ignore */ }
-    }
-  }, [])
-
-  const handleForward = useCallback(() => {
-    if (webviewRef.current) {
-      try { ;(webviewRef.current as any).goForward() } catch { /* ignore */ }
-    }
-  }, [])
-
+  const handleBack = useCallback(() => { window.browser.back(node.id) }, [node.id])
+  const handleForward = useCallback(() => { window.browser.forward(node.id) }, [node.id])
   const handleReloadStop = useCallback(() => {
-    if (!webviewRef.current) return
-    try {
-      if (loading) {
-        ;(webviewRef.current as any).stop()
-      } else {
-        ;(webviewRef.current as any).reload()
-      }
-    } catch { /* ignore */ }
-  }, [loading])
+    if (loading) {
+      window.browser.stop(node.id)
+    } else {
+      window.browser.reload(node.id)
+    }
+  }, [loading, node.id])
 
   const handleUrlKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
         let url = (e.currentTarget as HTMLInputElement).value.trim()
         if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
-          // Heuristic: if it looks like a domain, add https://; otherwise search
           if (url.includes('.') && !url.includes(' ')) {
             url = 'https://' + url
           } else {
@@ -554,12 +573,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
           }
         }
         setUrlBar(url)
-        if (webviewRef.current) {
-          try { ;(webviewRef.current as any).loadURL(url) } catch { /* ignore */ }
-        }
+        window.browser.navigate(node.id, url)
       }
     },
-    []
+    [node.id]
   )
 
   const handleSessionChange = useCallback((newSessionId: string) => {
@@ -620,22 +637,11 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               style={{ ...btnBase }}
               title="Back"
               onClick={handleBack}
-              onMouseEnter={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnHover)
-              }
-              onMouseLeave={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnBase)
-              }
+              onMouseEnter={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnHover)}
+              onMouseLeave={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnBase)}
             >
               <svg width="12" height="12" viewBox="0 0 12 12">
-                <path
-                  d="M6 5l-4 4 4 4M2 9h8"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
+                <path d="M6 5l-4 4 4 4M2 9h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
               </svg>
             </button>
 
@@ -644,22 +650,11 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               style={{ ...btnBase }}
               title="Forward"
               onClick={handleForward}
-              onMouseEnter={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnHover)
-              }
-              onMouseLeave={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnBase)
-              }
+              onMouseEnter={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnHover)}
+              onMouseLeave={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnBase)}
             >
               <svg width="12" height="12" viewBox="0 0 12 12">
-                <path
-                  d="M4 5l4 4-4 4M10 9H2"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
+                <path d="M4 5l4 4-4 4M10 9H2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
               </svg>
             </button>
 
@@ -668,33 +663,16 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               style={{ ...btnBase }}
               title={loading ? 'Stop' : 'Reload'}
               onClick={handleReloadStop}
-              onMouseEnter={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnHover)
-              }
-              onMouseLeave={(e) =>
-                Object.assign((e.currentTarget as HTMLElement).style, btnBase)
-              }
+              onMouseEnter={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnHover)}
+              onMouseLeave={(e) => Object.assign((e.currentTarget as HTMLElement).style, btnBase)}
             >
               {loading ? (
                 <svg width="12" height="12" viewBox="0 0 12 12">
-                  <path
-                    d="M3 3l6 6M9 3l-6 6"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
+                  <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
                 </svg>
               ) : (
                 <svg width="12" height="12" viewBox="0 0 12 12">
-                  <path
-                    d="M9 4.5A4.5 4.5 0 1 0 10 8M9 2v3h-3"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
+                  <path d="M9 4.5A4.5 4.5 0 1 0 10 8M9 2v3h-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                 </svg>
               )}
             </button>
@@ -707,12 +685,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               onKeyDown={handleUrlKeyDown}
               onFocus={(e) => {
                 ;(e.currentTarget as HTMLInputElement).select()
-                ;(e.currentTarget as HTMLInputElement).style.borderColor =
-                  'rgba(255,255,255,0.2)'
+                ;(e.currentTarget as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.2)'
               }}
               onBlur={(e) => {
-                ;(e.currentTarget as HTMLInputElement).style.borderColor =
-                  'rgba(255,255,255,0.08)'
+                ;(e.currentTarget as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.08)'
               }}
               style={{
                 flex: 1,
@@ -734,14 +710,22 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               nodeId={node.id}
               onChange={handleSessionChange}
             />
-
           </div>
 
-          {/* Webview area — webview stays mounted always to preserve page state */}
+          {/* Webview area — placeholder div; actual content rendered by WebContentsView overlay */}
           <div
             ref={webviewAreaRef}
-            style={{ width: '100%', height: webviewHeight, position: 'relative', overflow: 'hidden', background: isActivated ? '#ffffff' : '#0d0d0d' }}
-            onPointerDown={(e) => { useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+            style={{
+              width: '100%',
+              height: webviewHeight,
+              position: 'relative',
+              overflow: 'hidden',
+              background: isActivated ? '#ffffff' : '#0d0d0d',
+            }}
+            onPointerDown={(e) => {
+              useActivationStore.getState().activate(node.id)
+              e.stopPropagation()
+            }}
             onDragOver={(e) => {
               if (e.dataTransfer.types.includes('application/canvaflow-session')) {
                 e.preventDefault()
@@ -759,17 +743,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               }
             }}
           >
-            {isActivated && canvasPreloadPath && (
-              <webview
-                key={partition}
-                ref={webviewRef}
-                src={webviewSrcRef.current}
-                partition={partition}
-                allowpopups=""
-                preload={canvasPreloadPath}
-                style={{ width: '100%', height: '100%', display: 'flex' }}
-              />
-            )}
             {isActivated && isThumbnailMode && thumbnail && (
               <img
                 src={thumbnail}
@@ -778,17 +751,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               />
             )}
             {!isActivated && <NodePlaceholder icon="browser" />}
-            {/* Focus guard — blocks input to webview when not active, letting wheel events bubble to canvas */}
-            {isActivated && focusedNodeId !== node.id && (
-              <div
-                style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'default' }}
-                onPointerDown={(e) => {
-                  e.stopPropagation()
-                  setFocusedNodeId(node.id)
-                  setTimeout(() => (webviewRef.current as any)?.focus(), 0)
-                }}
-              />
-            )}
           </div>
         </BaseNode>
       </ContextMenuTrigger>

@@ -139,6 +139,24 @@ declare global {
       prepareExport: (apiKey: string, token: string, cardId: string) => Promise<{ text: string; markdown: string }>
     }
 
+    browser: {
+      create: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+      destroy: (nodeId: string) => Promise<void>
+      changeSession: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
+      updateBounds: (nodeId: string, bounds: { x: number; y: number; width: number; height: number }) => void
+      setVisible: (nodeId: string, visible: boolean) => void
+      navigate: (nodeId: string, url: string) => void
+      back: (nodeId: string) => void
+      forward: (nodeId: string) => void
+      reload: (nodeId: string) => void
+      stop: (nodeId: string) => void
+      focus: (nodeId: string) => void
+      capture: (nodeId: string) => Promise<string | null>
+      executeJS: (nodeId: string, js: string) => Promise<unknown>
+      onEvent: (callback: (nodeId: string, event: string, data: Record<string, unknown>) => void) => () => void
+      onCanvasEvent: (callback: (nodeId: string, channel: string, data: Record<string, unknown>) => void) => () => void
+    }
+
     sessions: {
       getAll: () => Promise<BrowserSessionRow[]>
       save: (s: BrowserSessionRow) => Promise<void>

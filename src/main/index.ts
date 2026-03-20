@@ -1,11 +1,11 @@
-import { app, BrowserWindow, ipcMain, session, Menu, WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions } from './pty'
 import { initDatabase, getAllNodeIds } from './database'
 import { setupWorkspaceHandlers } from './workspace'
 import { tmuxManager } from './tmux'
-import { setupBrowserSession } from './browserSession'
+import { setupBrowserViewHandlers, destroyAllBrowserViews } from './browserViewManager'
 import { registerNotionHandlers } from '../plugins/notion/main/handlers'
 import { registerTrelloHandlers } from '../plugins/trello/main/handlers'
 import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
@@ -27,7 +27,6 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: true,
       sandbox: false // needed for node-pty in preload
     }
   })
@@ -55,6 +54,7 @@ function createWindow(): void {
 
   // Kill all PTYs before the webContents is destroyed so onData never fires into a dead window
   mainWindow.on('close', () => {
+    destroyAllBrowserViews()
     killAllPtys()
   })
 
@@ -66,31 +66,6 @@ function createWindow(): void {
 
   setupPtyHandlers(() => mainWindow?.webContents ?? null)
 
-  // Apply session setup to every webview that attaches (covers named sessions too)
-  mainWindow.webContents.on('did-attach-webview', (_event, webviewContents: WebContents) => {
-    // ERR_ABORTED (-3) fires whenever a navigation is cancelled mid-flight (webview
-    // destroyed, redirected, etc.). It is harmless — suppress to keep logs clean.
-    webviewContents.on('did-fail-load', (_e, errorCode) => {
-      if (errorCode === -3) return
-    })
-
-    setupBrowserSession(webviewContents.session)
-
-    // Popup windows (OAuth etc.) inherit the webview's session so cookies are shared
-    webviewContents.setWindowOpenHandler((_details) => ({
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        width: 520,
-        height: 640,
-        autoHideMenuBar: true,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          session: webviewContents.session,
-        },
-      },
-    }))
-  })
 }
 
 // Minimal application menu that restores native Cmd+C/V/X/A/Z clipboard shortcuts.
@@ -117,6 +92,7 @@ app.whenReady().then(async () => {
     console.error('[main] Database init failed, running without persistence:', err)
   }
   setupWorkspaceHandlers()
+  setupBrowserViewHandlers()
   registerNotionHandlers(ipcMain)
   registerTrelloHandlers(ipcMain)
   registerGitHandlers(ipcMain)
@@ -124,9 +100,6 @@ app.whenReady().then(async () => {
   // Init tmux and clean up orphan sessions from deleted nodes
   await tmuxManager.init()
   await cleanupOrphanSessions(getAllNodeIds())
-
-  // Set up default browser session
-  setupBrowserSession(session.fromPartition('persist:canvaflow-ws-default'))
 
   createWindow()
   app.on('activate', () => {
