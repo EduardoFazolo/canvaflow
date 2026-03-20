@@ -29,9 +29,11 @@ interface SessionPickerProps {
   sessionId: string | undefined
   nodeId: string
   onChange: (sessionId: string) => void
+  onOpen?: () => void
+  onClose?: () => void
 }
 
-function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): React.ReactElement {
+function SessionPicker({ sessionId, nodeId, onChange, onOpen, onClose }: SessionPickerProps): React.ReactElement {
   const { sessions, loaded, load, add } = useSessionStore()
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -41,16 +43,20 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
 
   useEffect(() => { if (!loaded) load() }, [loaded, load])
 
+  const openDropdown = () => { setOpen(true); onOpen?.() }
+  const closeDropdown = () => { setOpen(false); onClose?.() }
+
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setOpen(false)
+        closeDropdown()
         setCreating(false)
       }
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {
@@ -70,7 +76,7 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
     onChange(session.id)
     setNewName('')
     setCreating(false)
-    setOpen(false)
+    closeDropdown()
   }
 
   const isPrivate = sessionId === 'private'
@@ -80,7 +86,7 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
     <div ref={pickerRef} style={{ position: 'relative', flexShrink: 0 }}>
       <button
         onPointerDown={(e) => e.stopPropagation()}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => open ? closeDropdown() : openDropdown()}
         title="Browser session"
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
@@ -121,7 +127,7 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
           {(['default', 'private'] as const).map((opt) => (
             <div
               key={opt}
-              onClick={() => { onChange(opt); setOpen(false) }}
+              onClick={() => { onChange(opt); closeDropdown() }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '7px 10px', fontSize: 12, cursor: 'pointer',
@@ -159,7 +165,7 @@ function SessionPicker({ sessionId, nodeId, onChange }: SessionPickerProps): Rea
           {sessions.map((s) => (
             <div
               key={s.id}
-              onClick={() => { onChange(s.id); setOpen(false) }}
+              onClick={() => { onChange(s.id); closeDropdown() }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '7px 10px', fontSize: 12, cursor: 'pointer',
@@ -309,6 +315,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   const moveEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const shouldShowRef = useRef(false)
 
+  // Cached canvas-viewport rect — updated once at mount and after sidebar animation.
+  // Avoids calling getBoundingClientRect() on every camera frame (the hot path).
+  const vpRectRef = useRef({ left: 0, top: 0 })
+
   // Track camera zoom without re-rendering on every change
   const cameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
   const [isThumbnailMode, setIsThumbnailMode] = useState(
@@ -319,17 +329,21 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   // Helpers
   // ---------------------------------------------------------------------------
 
+  // Initialize vpRectRef once after mount so getBoundsDirect has correct values.
+  useEffect(() => {
+    const vp = document.getElementById('canvas-viewport')
+    if (vp) {
+      const r = vp.getBoundingClientRect()
+      vpRectRef.current = { left: r.left, top: r.top }
+    }
+  }, [])
+
   // Compute bounds directly from camera state + node coords.
-  // Reads canvas-viewport position via getBoundingClientRect() on each call so
-  // it stays correct when the sidebar opens/closes — a cached ref would go stale
-  // because ResizeObserver only fires on size changes, not position changes.
-  // The canvas-viewport never moves due to camera changes, so this single read
-  // per camera frame is cheap and always accurate.
+  // Uses the cached vpRectRef (updated at mount + after sidebar animation finishes)
+  // rather than calling getBoundingClientRect() on every camera frame.
   const getBoundsDirect = useCallback(
     (camera: { x: number; y: number; zoom: number }) => {
-      const vp = document.getElementById('canvas-viewport')
-      if (!vp) return null
-      const { left: vpLeft, top: vpTop } = vp.getBoundingClientRect()
+      const { left: vpLeft, top: vpTop } = vpRectRef.current
       const zoom = camera.zoom
       const sx = vpLeft + camera.x + node.x * zoom
       const syFull = vpTop + camera.y + node.y * zoom
@@ -553,16 +567,37 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     window.browser.setZoomFactor(node.id, cameraZoom * (node.contentScale ?? 1))
   }, [node.contentScale, viewCreated, node.id])
 
-  // Re-send bounds when the sidebar opens/closes — the canvas-viewport shifts
-  // horizontally but no camera event fires, so bounds would otherwise go stale.
+  // When the sidebar opens/closes, its CSS transition animates the width over 200ms.
+  // During this window vpRectRef.current would be stale. We freeze the view and
+  // update the cache 250ms after the animation ends, then unfreeze.
+  // We skip the initial ResizeObserver fire (fired synchronously on observation start)
+  // so we don't freeze a freshly-shown view on every node mount.
   useEffect(() => {
-    if (!viewCreated) return
     const sidebar = document.querySelector('[data-sidebar]')
     if (!sidebar) return
-    const ro = new ResizeObserver(() => { sendBounds() })
+    let isFirstFire = true
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    const ro = new ResizeObserver(() => {
+      if (isFirstFire) { isFirstFire = false; return }
+      if (viewCreated) freeze()
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null
+        const vp = document.getElementById('canvas-viewport')
+        if (vp) {
+          const r = vp.getBoundingClientRect()
+          vpRectRef.current = { left: r.left, top: r.top }
+        }
+        if (viewCreated) scheduleUnfreeze()
+      }, 250)
+    })
     ro.observe(sidebar)
-    return () => ro.disconnect()
-  }, [viewCreated, sendBounds])
+    return () => {
+      ro.disconnect()
+      if (debounceTimer) clearTimeout(debounceTimer)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewCreated, freeze, scheduleUnfreeze])
 
   // ---------------------------------------------------------------------------
   // Thumbnail mode
@@ -894,6 +929,8 @@ export function BrowserNode({ node }: Props): React.ReactElement {
               sessionId={sessionId}
               nodeId={node.id}
               onChange={handleSessionChange}
+              onOpen={freeze}
+              onClose={scheduleUnfreeze}
             />
           </div>
 
