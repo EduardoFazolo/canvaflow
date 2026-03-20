@@ -287,6 +287,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   const partition = getPartition(sessionId, node.id)
   const partitionRef = useRef(partition)
 
+  // Keep contentScale in a ref so camera subscription can read it without stale closure
+  const contentScaleRef = useRef(node.contentScale ?? 1)
+  contentScaleRef.current = node.contentScale ?? 1
+
   // Current URL tracked without re-rendering
   const webviewSrcRef = useRef<string>((node.props.url as string) || 'https://google.com')
 
@@ -310,13 +314,34 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     if (!el) return null
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return null
-    return { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+
+    // Clip to the canvas viewport to prevent overlapping the sidebar, title bar,
+    // and macOS traffic light buttons (which sit in the top-left of the window).
+    const viewport = document.getElementById('canvas-viewport')?.getBoundingClientRect()
+    if (!viewport) return { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+
+    const left = Math.max(rect.left, viewport.left)
+    const top = Math.max(rect.top, viewport.top)
+    const right = Math.min(rect.right, viewport.right)
+    const bottom = Math.min(rect.bottom, viewport.bottom)
+    if (right <= left || bottom <= top) return null
+    return { x: Math.round(left), y: Math.round(top), width: Math.round(right - left), height: Math.round(bottom - top) }
   }, [])
+
+  // Track previous camera zoom to avoid resetting page zoom on every pan
+  const prevCameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
 
   const sendBounds = useCallback(() => {
     const bounds = getBounds()
     if (!bounds) return
     window.browser.updateBounds(node.id, bounds)
+  }, [node.id, getBounds])
+
+  const sendBoundsAndZoom = useCallback((cameraZoom: number) => {
+    const bounds = getBounds()
+    if (!bounds) return
+    window.browser.updateBounds(node.id, bounds)
+    window.browser.setZoomFactor(node.id, cameraZoom * contentScaleRef.current)
   }, [node.id, getBounds])
 
   // ---------------------------------------------------------------------------
@@ -353,32 +378,51 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   useEffect(() => {
     if (!viewCreated) return
     const shouldShow = isActivated && isActiveWorkspace && !isThumbnailMode
-    window.browser.setVisible(node.id, shouldShow)
     if (shouldShow) {
-      // Re-sync bounds when becoming visible (camera may have moved while hidden)
-      requestAnimationFrame(sendBounds)
+      // Update bounds first, then show — prevents the brief wrong-position flash
+      const bounds = getBounds()
+      if (bounds) window.browser.updateBounds(node.id, bounds)
     }
-  }, [isActivated, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, sendBounds])
+    window.browser.setVisible(node.id, shouldShow)
+  }, [isActivated, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, getBounds])
 
   // ---------------------------------------------------------------------------
   // Bounds: update when camera moves or node resizes
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    const onCameraChange = () => requestAnimationFrame(sendBounds)
+    const onCameraChange = (s: ReturnType<typeof useCameraStore.getState>) => {
+      const zoomChanged = s.camera.zoom !== prevCameraZoomRef.current
+      if (zoomChanged) prevCameraZoomRef.current = s.camera.zoom
+      requestAnimationFrame(() => {
+        if (zoomChanged) {
+          sendBoundsAndZoom(s.camera.zoom)
+        } else {
+          sendBounds()
+        }
+      })
+    }
+    const onResize = () => requestAnimationFrame(sendBounds)
     const unsub = useCameraStore.subscribe(onCameraChange)
-    window.addEventListener('resize', onCameraChange)
+    window.addEventListener('resize', onResize)
     return () => {
       unsub()
-      window.removeEventListener('resize', onCameraChange)
+      window.removeEventListener('resize', onResize)
     }
-  }, [sendBounds])
+  }, [sendBounds, sendBoundsAndZoom])
 
   // Update bounds when node dimensions change
   useEffect(() => {
     if (!viewCreated) return
     requestAnimationFrame(sendBounds)
   }, [node.width, node.height, node.x, node.y, viewCreated, sendBounds])
+
+  // Update zoom factor when contentScale changes (zoom +/- buttons in title bar)
+  useEffect(() => {
+    if (!viewCreated) return
+    const cameraZoom = useCameraStore.getState().camera.zoom
+    window.browser.setZoomFactor(node.id, cameraZoom * (node.contentScale ?? 1))
+  }, [node.contentScale, viewCreated, node.id])
 
   // ---------------------------------------------------------------------------
   // Thumbnail mode
@@ -589,7 +633,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   return (
     <ContextMenu>
       <ContextMenuTrigger>
-        <BaseNode node={node} titleExtra={(() => {
+        <BaseNode node={node} noCssZoom titleExtra={(() => {
               const gh = parseGitHubRepo(urlBar)
               if (!gh) return null
               return (

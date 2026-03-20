@@ -136,6 +136,12 @@ export function setBrowserViewVisible(nodeId: string, visible: boolean): void {
   entry.view.setVisible(visible)
 }
 
+export function setBrowserViewZoomFactor(nodeId: string, factor: number): void {
+  const entry = views.get(nodeId)
+  if (!entry) return
+  entry.view.webContents.setZoomFactor(Math.max(0.1, factor))
+}
+
 export function navigateBrowserView(nodeId: string, url: string): void {
   const entry = views.get(nodeId)
   if (!entry) return
@@ -208,6 +214,10 @@ export function setupBrowserViewHandlers(): void {
 
   ipcMain.on('browser:set-visible', (_e, nodeId: string, visible: boolean) => {
     setBrowserViewVisible(nodeId, visible)
+  })
+
+  ipcMain.on('browser:set-zoom-factor', (_e, nodeId: string, factor: number) => {
+    setBrowserViewZoomFactor(nodeId, factor)
   })
 
   ipcMain.on('browser:navigate', (_e, nodeId: string, url: string) => {

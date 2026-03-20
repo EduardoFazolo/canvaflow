@@ -145,6 +145,7 @@ declare global {
       changeSession: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
       updateBounds: (nodeId: string, bounds: { x: number; y: number; width: number; height: number }) => void
       setVisible: (nodeId: string, visible: boolean) => void
+      setZoomFactor: (nodeId: string, factor: number) => void
       navigate: (nodeId: string, url: string) => void
       back: (nodeId: string) => void
       forward: (nodeId: string) => void

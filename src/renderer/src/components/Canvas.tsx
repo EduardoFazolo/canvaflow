@@ -146,6 +146,7 @@ export function Canvas(): React.ReactElement {
   return (
     <CanvasContextMenu camera={camera}>
       <div
+        id="canvas-viewport"
         ref={rootRef}
         style={{
           position: 'relative',

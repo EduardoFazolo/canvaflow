@@ -151,6 +151,9 @@ contextBridge.exposeInMainWorld('browser', {
   setVisible: (nodeId: string, visible: boolean): void =>
     ipcRenderer.send('browser:set-visible', nodeId, visible),
 
+  setZoomFactor: (nodeId: string, factor: number): void =>
+    ipcRenderer.send('browser:set-zoom-factor', nodeId, factor),
+
   navigate: (nodeId: string, url: string): void =>
     ipcRenderer.send('browser:navigate', nodeId, url),
 
