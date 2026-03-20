@@ -392,12 +392,12 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   const freeze = useCallback(() => {
     if (!shouldShowRef.current) return      // view is hidden, nothing to freeze
     if (isFrozenRef.current) return         // already frozen
-    if (!screenshotRef.current) return      // no screenshot yet — skip, live view lags this once
-    const img = frozenImgRef.current
-    if (!img || !img.src) return            // img not ready
     isFrozenRef.current = true
-    // Show the already-decoded img first, THEN hide the native view — no white flash
-    img.style.display = 'block'
+    // Show the already-decoded screenshot first (if available), THEN hide the native
+    // view — avoids white flash. If no screenshot yet, we still hide the view to
+    // prevent it from overlapping the sidebar when the node scrolls off-screen.
+    const img = frozenImgRef.current
+    if (img && img.src) img.style.display = 'block'
     window.browser.setVisible(node.id, false)
   }, [node.id])
 
@@ -407,12 +407,16 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       if (!isFrozenRef.current) return
       isFrozenRef.current = false
       if (shouldShowRef.current) {
-        // Still focused — hide screenshot, restore live view
-        if (frozenImgRef.current) frozenImgRef.current.style.display = 'none'
         const bounds = getBoundsDirect(useCameraStore.getState().camera)
-        if (bounds) window.browser.updateBounds(node.id, bounds)
-        window.browser.setVisible(node.id, true)
-        captureSnapshot() // refresh for next movement/unfocus
+        if (bounds) {
+          // Node is visible — restore live view
+          if (frozenImgRef.current) frozenImgRef.current.style.display = 'none'
+          window.browser.updateBounds(node.id, bounds)
+          window.browser.setVisible(node.id, true)
+          captureSnapshot() // refresh for next movement/unfocus
+        }
+        // If bounds is null: node is fully behind sidebar or off-screen.
+        // Keep view hidden and screenshot visible until next movement brings it back.
       }
       // If not focused, the img stays visible (it's the idle screenshot)
     }, 150)
@@ -468,9 +472,11 @@ export function BrowserNode({ node }: Props): React.ReactElement {
         if (moveEndTimerRef.current) clearTimeout(moveEndTimerRef.current)
         if (frozenImgRef.current) frozenImgRef.current.style.display = 'none'
       }
-      const bounds = getBounds()
-      if (bounds) window.browser.updateBounds(node.id, bounds)
-      window.browser.setVisible(node.id, true)
+      const bounds = getBoundsDirect(useCameraStore.getState().camera)
+      if (bounds) {
+        window.browser.updateBounds(node.id, bounds)
+        window.browser.setVisible(node.id, true)
+      }
       captureSnapshot() // keep screenshot fresh for next unfocus
     } else {
       // Becoming unfocused: hide live view, show last screenshot in DOM
@@ -485,7 +491,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       }
       captureSnapshot() // capture current state for next time it's shown
     }
-  }, [isFocused, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, getBounds, captureSnapshot])
+  }, [isFocused, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, getBoundsDirect, captureSnapshot])
 
   // ---------------------------------------------------------------------------
   // Bounds: update when camera moves or node resizes
@@ -496,11 +502,14 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       const zoomChanged = s.camera.zoom !== prevCameraZoomRef.current
       if (zoomChanged) prevCameraZoomRef.current = s.camera.zoom
       const bounds = getBoundsDirect(s.camera)
-      if (!bounds) return
-      window.browser.updateBounds(node.id, bounds) // always keep hidden view in sync
-      if (zoomChanged) {
-        window.browser.setZoomFactor(node.id, s.camera.zoom * contentScaleRef.current)
+      if (bounds) {
+        window.browser.updateBounds(node.id, bounds) // keep hidden view in sync
+        if (zoomChanged) {
+          window.browser.setZoomFactor(node.id, s.camera.zoom * contentScaleRef.current)
+        }
       }
+      // Always freeze/unfreeze — even when off-screen, we must hide the live view
+      // so it doesn't float over the sidebar when the node scrolls off-screen.
       freeze()
       scheduleUnfreeze()
     }
