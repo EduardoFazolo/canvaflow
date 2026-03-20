@@ -151,13 +151,13 @@ export function navigateBrowserView(nodeId: string, url: string): void {
 export function browserViewBack(nodeId: string): void {
   const entry = views.get(nodeId)
   if (!entry) return
-  if (entry.view.webContents.canGoBack()) entry.view.webContents.goBack()
+  if (entry.view.webContents.navigationHistory.canGoBack()) entry.view.webContents.goBack()
 }
 
 export function browserViewForward(nodeId: string): void {
   const entry = views.get(nodeId)
   if (!entry) return
-  if (entry.view.webContents.canGoForward()) entry.view.webContents.goForward()
+  if (entry.view.webContents.navigationHistory.canGoForward()) entry.view.webContents.goForward()
 }
 
 export function browserViewReload(nodeId: string): void {

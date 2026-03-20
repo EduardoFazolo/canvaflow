@@ -360,8 +360,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
 
   // Stable ref so the visibility effect can call the latest getBoundsDirect
   // without taking it as a dependency (which would cause re-runs on every drag update).
+  // Updated synchronously during render (not in an effect) so it is always current
+  // by the time any effect in this render runs.
   const getBoundsDirectRef = useRef(getBoundsDirect)
-  useEffect(() => { getBoundsDirectRef.current = getBoundsDirect }, [getBoundsDirect])
+  getBoundsDirectRef.current = getBoundsDirect
 
   // Track previous camera zoom to avoid resetting page zoom on every pan
   const prevCameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
@@ -481,6 +483,10 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       if (bounds) {
         window.browser.updateBounds(node.id, bounds)
         window.browser.setVisible(node.id, true)
+      } else {
+        // Node is fully off-screen — ensure live view is hidden even if it was
+        // previously visible (e.g. after thumbnail-mode exit during zoom).
+        window.browser.setVisible(node.id, false)
       }
       captureSnapshot() // keep screenshot fresh for next unfocus
     } else {
@@ -519,7 +525,17 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       scheduleUnfreeze()
     }
     const unsub = useCameraStore.subscribe(onCameraChange)
-    return () => { unsub() }
+    return () => {
+      unsub()
+      // Cancel any pending unfreeze timer: this subscription is being torn down
+      // because getBoundsDirect changed (node was dragged). The pending timer has
+      // a stale node-position closure and must not fire. The node-position effect
+      // will immediately schedule a fresh timer with the updated position.
+      if (moveEndTimerRef.current) {
+        clearTimeout(moveEndTimerRef.current)
+        moveEndTimerRef.current = null
+      }
+    }
   }, [node.id, getBoundsDirect, freeze, scheduleUnfreeze])
 
   // Update bounds when node dimensions change
