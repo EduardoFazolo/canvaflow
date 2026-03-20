@@ -31,12 +31,15 @@ export default function App(): React.ReactElement {
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <div style={{
-          width: sidebarOpen ? SIDEBAR_W : 0,
-          overflow: 'hidden',
-          transition: 'width 0.2s ease',
-          flexShrink: 0,
-        }}>
+        <div
+          data-sidebar
+          style={{
+            width: sidebarOpen ? SIDEBAR_W : 0,
+            overflow: 'hidden',
+            transition: 'width 0.2s ease',
+            flexShrink: 0,
+          }}
+        >
           <Sidebar />
         </div>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>

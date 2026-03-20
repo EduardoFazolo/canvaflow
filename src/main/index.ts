@@ -27,7 +27,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false // needed for node-pty in preload
+      sandbox: false, // needed for node-pty in preload
+      webviewTag: true  // required for Notion and Trello nodes
     }
   })
 

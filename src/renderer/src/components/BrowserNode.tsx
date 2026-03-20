@@ -319,40 +319,17 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  // Cache the canvas-viewport's screen offset so we can compute WebContentsView
-  // bounds directly from camera+node coords without getBoundingClientRect().
-  // This eliminates the requestAnimationFrame round-trip and the resulting 1-frame
-  // lag between the node chrome and the native view during canvas panning.
-  const canvasVpOffsetRef = useRef({ left: 0, top: 0 })
-
-  useEffect(() => {
-    const update = () => {
-      const vp = document.getElementById('canvas-viewport')
-      if (!vp) return
-      const r = vp.getBoundingClientRect()
-      canvasVpOffsetRef.current = { left: r.left, top: r.top }
-    }
-    update()
-    const ro = new ResizeObserver(update)
-    const vp = document.getElementById('canvas-viewport')
-    if (vp) ro.observe(vp)
-    window.addEventListener('resize', update)
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', update)
-    }
-  }, [])
-
-  // Compute bounds directly from camera state + node coords — no DOM query needed.
-  // Clips to the canvas-viewport edges on all sides:
-  //   - Top: protects macOS traffic lights
-  //   - Left: protects the left sidebar
-  // Previously we skipped horizontal clipping to avoid page reflow while dragging,
-  // but the freeze mechanism now hides the WebContentsView during all movement,
-  // so the page only reflows once when movement stops — not continuously.
+  // Compute bounds directly from camera state + node coords.
+  // Reads canvas-viewport position via getBoundingClientRect() on each call so
+  // it stays correct when the sidebar opens/closes — a cached ref would go stale
+  // because ResizeObserver only fires on size changes, not position changes.
+  // The canvas-viewport never moves due to camera changes, so this single read
+  // per camera frame is cheap and always accurate.
   const getBoundsDirect = useCallback(
     (camera: { x: number; y: number; zoom: number }) => {
-      const { left: vpLeft, top: vpTop } = canvasVpOffsetRef.current
+      const vp = document.getElementById('canvas-viewport')
+      if (!vp) return null
+      const { left: vpLeft, top: vpTop } = vp.getBoundingClientRect()
       const zoom = camera.zoom
       const sx = vpLeft + camera.x + node.x * zoom
       const syFull = vpTop + camera.y + node.y * zoom
@@ -373,7 +350,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
         height: Math.round(bottom - top),
       }
     },
-    [node.id, node.x, node.y, node.width, node.height]
+    [node.x, node.y, node.width, node.height]
   )
 
   // Fallback: read bounds from DOM (used outside camera subscription path).
@@ -545,6 +522,17 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     const cameraZoom = useCameraStore.getState().camera.zoom
     window.browser.setZoomFactor(node.id, cameraZoom * (node.contentScale ?? 1))
   }, [node.contentScale, viewCreated, node.id])
+
+  // Re-send bounds when the sidebar opens/closes — the canvas-viewport shifts
+  // horizontally but no camera event fires, so bounds would otherwise go stale.
+  useEffect(() => {
+    if (!viewCreated) return
+    const sidebar = document.querySelector('[data-sidebar]')
+    if (!sidebar) return
+    const ro = new ResizeObserver(() => { sendBounds() })
+    ro.observe(sidebar)
+    return () => ro.disconnect()
+  }, [viewCreated, sendBounds])
 
   // ---------------------------------------------------------------------------
   // Thumbnail mode
