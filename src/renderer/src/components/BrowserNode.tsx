@@ -358,6 +358,11 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     return getBoundsDirect(useCameraStore.getState().camera)
   }, [getBoundsDirect])
 
+  // Stable ref so the visibility effect can call the latest getBoundsDirect
+  // without taking it as a dependency (which would cause re-runs on every drag update).
+  const getBoundsDirectRef = useRef(getBoundsDirect)
+  useEffect(() => { getBoundsDirectRef.current = getBoundsDirect }, [getBoundsDirect])
+
   // Track previous camera zoom to avoid resetting page zoom on every pan
   const prevCameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
 
@@ -472,7 +477,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
         if (moveEndTimerRef.current) clearTimeout(moveEndTimerRef.current)
         if (frozenImgRef.current) frozenImgRef.current.style.display = 'none'
       }
-      const bounds = getBoundsDirect(useCameraStore.getState().camera)
+      const bounds = getBoundsDirectRef.current(useCameraStore.getState().camera)
       if (bounds) {
         window.browser.updateBounds(node.id, bounds)
         window.browser.setVisible(node.id, true)
@@ -491,7 +496,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
       }
       captureSnapshot() // capture current state for next time it's shown
     }
-  }, [isFocused, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, getBoundsDirect, captureSnapshot])
+  }, [isFocused, isActiveWorkspace, isThumbnailMode, viewCreated, node.id, captureSnapshot])
 
   // ---------------------------------------------------------------------------
   // Bounds: update when camera moves or node resizes
