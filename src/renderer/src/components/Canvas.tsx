@@ -16,7 +16,7 @@ export function Canvas(): React.ReactElement {
   const { camera, pan, zoomAt } = useCameraStore()
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const { videoRef, status: maestroStatus, gesture: maestroGesture } = useHandGestureNavigation()
+  const { videoRef, status: maestroStatus, gesture: maestroGesture, isSleeping: maestroSleeping, prayerProgress: maestroPrayerProgress } = useHandGestureNavigation()
   const isPanningRef = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
   const spaceHeldRef = useRef(false)
@@ -178,7 +178,7 @@ export function Canvas(): React.ReactElement {
           </CanvasOverlay>
         </div>
       </CanvasContextMenu>
-      <GestureOverlay videoRef={videoRef} status={maestroStatus} gesture={maestroGesture} />
+      <GestureOverlay videoRef={videoRef} status={maestroStatus} gesture={maestroGesture} isSleeping={maestroSleeping} prayerProgress={maestroPrayerProgress} />
     </>
   )
 }

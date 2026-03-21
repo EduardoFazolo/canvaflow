@@ -3,15 +3,18 @@ import type { RefObject } from 'react'
 import type { GestureStatus, ActiveGesture } from './useHandGestureNavigation'
 
 interface Props {
-  videoRef: RefObject<HTMLVideoElement | null>
-  status:   GestureStatus
-  gesture:  ActiveGesture
+  videoRef:       RefObject<HTMLVideoElement | null>
+  status:         GestureStatus
+  gesture:        ActiveGesture
+  isSleeping:     boolean
+  prayerProgress: number
 }
 
 const GESTURE_LABEL: Record<ActiveGesture, string> = {
   idle:    'Hand detected',
   panning: 'Panning',
   zooming: 'Zooming',
+  prayer:  'Domain Expansion…',
 }
 
 const STATUS_COLOR: Record<GestureStatus, string> = {
@@ -21,16 +24,73 @@ const STATUS_COLOR: Record<GestureStatus, string> = {
   error:   '#f87171',
 }
 
-export function GestureOverlay({ videoRef, status, gesture }: Props): React.ReactElement | null {
+export function GestureOverlay({ videoRef, status, gesture, isSleeping, prayerProgress }: Props): React.ReactElement | null {
   if (status === 'off') return null
 
-  const dotColor   = status === 'ready' && gesture !== 'idle' ? '#a78bfa' : STATUS_COLOR[status]
-  const statusText = status === 'loading' ? 'Loading Maestro…'
-                   : status === 'error'   ? 'Camera unavailable'
-                   : gesture === 'idle'   ? 'Maestro ready'
-                   : GESTURE_LABEL[gesture]
+  const dotColor   = isSleeping              ? '#6b7280'
+                   : gesture === 'prayer'    ? '#fbbf24'
+                   : status === 'ready' && gesture !== 'idle' ? '#a78bfa'
+                   : STATUS_COLOR[status]
+  const statusText = status === 'loading'  ? 'Loading Maestro…'
+                   : status === 'error'    ? 'Camera unavailable'
+                   : isSleeping            ? 'Maestro sleeping'
+                   : gesture !== 'idle'    ? GESTURE_LABEL[gesture]
+                   : 'Maestro ready'
+
+  const RING_R = 54
+  const RING_C = (2 * Math.PI * RING_R).toFixed(2)
+  const ringOffset = parseFloat(RING_C) * (1 - prayerProgress)
 
   return (
+    <>
+      {/* ── Centered prayer activation overlay ── */}
+      {prayerProgress > 0 && (
+        <div
+          data-no-canvas-gesture
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+            pointerEvents: 'none',
+            background: `rgba(0,0,0,${0.18 * prayerProgress})`,
+            transition: 'background 0.1s',
+          }}
+        >
+          <svg width={140} height={140}>
+            {/* background ring */}
+            <circle cx={70} cy={70} r={RING_R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={5} />
+            {/* progress ring */}
+            <circle
+              cx={70} cy={70} r={RING_R}
+              fill="none"
+              stroke={isSleeping ? '#fbbf24' : '#a78bfa'}
+              strokeWidth={5}
+              strokeLinecap="round"
+              strokeDasharray={RING_C}
+              strokeDashoffset={String(ringOffset)}
+              transform="rotate(-90 70 70)"
+              style={{ transition: 'stroke 0.3s' }}
+            />
+            <text x={70} y={70} textAnchor="middle" dominantBaseline="central" fontSize={36}>🔺</text>
+          </svg>
+          <div style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'rgba(255,255,255,0.7)',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            fontFamily: 'inherit',
+          }}>
+            {isSleeping ? 'Wake Maestro' : 'Sleep Maestro'}
+          </div>
+        </div>
+      )}
+
     <div
       data-no-canvas-gesture
       style={{
@@ -82,7 +142,7 @@ export function GestureOverlay({ videoRef, status, gesture }: Props): React.Reac
         height: 90,
         borderRadius: 8,
         overflow: 'hidden',
-        border: `1px solid ${gesture !== 'idle' ? 'rgba(167,139,250,0.4)' : 'rgba(255,255,255,0.08)'}`,
+        border: `1px solid ${isSleeping ? 'rgba(107,114,128,0.3)' : gesture !== 'idle' ? 'rgba(167,139,250,0.4)' : 'rgba(255,255,255,0.08)'}`,
         background: '#111',
         transition: 'border-color 0.2s',
         position: 'relative',
@@ -98,7 +158,7 @@ export function GestureOverlay({ videoRef, status, gesture }: Props): React.Reac
             // Mirror so it feels like a reflection (natural for hand control)
             transform: 'scaleX(-1)',
             display: 'block',
-            opacity: status === 'ready' ? 1 : 0,
+            opacity: status === 'ready' ? (isSleeping ? 0.35 : 1) : 0,
             transition: 'opacity 0.3s',
           }}
         />
@@ -131,10 +191,11 @@ export function GestureOverlay({ videoRef, status, gesture }: Props): React.Reac
             letterSpacing: '0.04em',
             textTransform: 'uppercase',
           }}>
-            {gesture === 'panning' ? 'PAN' : gesture === 'zooming' ? 'ZOOM' : ''}
+            {gesture === 'panning' ? 'PAN' : gesture === 'zooming' ? 'ZOOM' : gesture === 'prayer' ? '🔺' : ''}
           </div>
         )}
       </div>
     </div>
+    </>
   )
 }

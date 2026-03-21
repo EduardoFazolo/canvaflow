@@ -11,13 +11,15 @@ import {
   INDEX_TIP,
   palmCentroid,
   isOpenPalm,
+  isDomainExpansion,
+  areFingertipsTouching,
   twoHandDistance,
   PAN_SENSITIVITY,
   PAN_DEADZONE,
 } from './gestureDetection'
 
 export type GestureStatus = 'off' | 'loading' | 'ready' | 'error'
-export type ActiveGesture = 'idle' | 'panning' | 'zooming'
+export type ActiveGesture = 'idle' | 'panning' | 'zooming' | 'prayer'
 
 const WASM_URL  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
@@ -27,6 +29,8 @@ const MAX_ZOOM  = 5
 // ── Feel constants ───────────────────────────────────────────────────────────
 /** ms for gesture effect to ramp from 0 → full strength after mode activates. */
 const RAMP_DURATION   = 280
+/** ms Domain Expansion gesture must be held to toggle sleep/wake. */
+const PRAYER_HOLD_DURATION = 1500
 /** EMA factor for cursor position smoothing (0=frozen, 1=raw). */
 const CURSOR_SMOOTH   = 0.38
 /** Lerp factor applied to camera per frame — gives smooth follow + coasting. */
@@ -36,9 +40,11 @@ const DWELL_DURATION  = 700
 const DWELL_COOLDOWN  = 1200
 
 export function useHandGestureNavigation(): {
-  videoRef: RefObject<HTMLVideoElement | null>
-  status:   GestureStatus
-  gesture:  ActiveGesture
+  videoRef:       RefObject<HTMLVideoElement | null>
+  status:         GestureStatus
+  gesture:        ActiveGesture
+  isSleeping:     boolean
+  prayerProgress: number
 } {
   const enabled = useSettingsStore(s => s.settings.maestroEnabled)
 
@@ -47,8 +53,15 @@ export function useHandGestureNavigation(): {
   const streamRef     = useRef<MediaStream | null>(null)
   const rafRef        = useRef<number | null>(null)
 
-  const [status,  setStatus]  = useState<GestureStatus>('off')
-  const [gesture, setGesture] = useState<ActiveGesture>('idle')
+  const [status,        setStatus]        = useState<GestureStatus>('off')
+  const [gesture,       setGesture]       = useState<ActiveGesture>('idle')
+  const [isSleeping,    setIsSleeping]    = useState(true)   // starts sleeping; prayer gesture wakes it
+  const [prayerProgress, setPrayerProgress] = useState(0)
+
+  // Prayer hands toggle
+  const isSleepingRef    = useRef(true)  // mirror of isSleeping for use inside rAF
+  const prayerHoldStart  = useRef<number | null>(null)
+  const prayerFiredRef   = useRef(false)
 
   // ── Gesture state ────────────────────────────────────────────────────────
   const gestureModeRef   = useRef<ActiveGesture>('idle')
@@ -158,8 +171,47 @@ export function useHandGestureNavigation(): {
     const h   = window.innerHeight
     const now = performance.now()
 
-    // ── Two hands (both open) → zoom ─────────────────────────────────────
-    if (landmarks.length >= 2 && isOpenPalm(landmarks[0]) && isOpenPalm(landmarks[1])) {
+    // ── Domain Expansion → sleep / wake toggle ───────────────────────────
+    if (landmarks.length >= 2 && isDomainExpansion(landmarks[0], landmarks[1])) {
+      if (prayerHoldStart.current === null) {
+        prayerHoldStart.current = now
+        prayerFiredRef.current  = false
+      }
+      const progress = Math.min(1, (now - prayerHoldStart.current) / PRAYER_HOLD_DURATION)
+      setPrayerProgress(progress)
+      if (progress >= 1 && !prayerFiredRef.current) {
+        prayerFiredRef.current  = true
+        isSleepingRef.current   = !isSleepingRef.current
+        setIsSleeping(isSleepingRef.current)
+        resetGestureState()
+        hideCursor()
+        return
+      }
+      // Show prayer cursor feedback using dwell ring
+      const c1  = palmCentroid(landmarks[0])
+      const c2  = palmCentroid(landmarks[1])
+      const raw = toScreen((c1.x + c2.x) / 2, (c1.y + c2.y) / 2)
+      const pos = smoothCursor(raw.x, raw.y)
+      updateCursor(pos.x, pos.y, 'prayer', false, progress, 1)
+      return
+    } else {
+      if (prayerHoldStart.current !== null) {
+        prayerHoldStart.current = null
+        prayerFiredRef.current  = false
+        setPrayerProgress(0)
+      }
+    }
+
+    // ── Sleeping — skip all navigation ───────────────────────────────────
+    if (isSleepingRef.current) {
+      if (gestureModeRef.current !== 'idle') resetGestureState()
+      hideCursor()
+      return
+    }
+
+    // ── Two hands (both open, not touching) → zoom ───────────────────────
+    if (landmarks.length >= 2 && isOpenPalm(landmarks[0]) && isOpenPalm(landmarks[1])
+        && !areFingertipsTouching(landmarks[0], landmarks[1])) {
       const dist = twoHandDistance(landmarks[0], landmarks[1])
 
       if (gestureModeRef.current !== 'zooming') {
@@ -203,7 +255,7 @@ export function useHandGestureNavigation(): {
       return
     }
 
-    // ── Dropped from zoom → reset ────────────────────────────────────────
+    // ── Dropped from zoom (hands closed, separated, or touching) → reset ─
     if (gestureModeRef.current === 'zooming') {
       zoomStartCam.current  = null
       zoomStartDist.current = null
@@ -375,5 +427,5 @@ export function useHandGestureNavigation(): {
     return () => { cancelled = true; cleanup() }
   }, [enabled])
 
-  return { videoRef, status, gesture }
+  return { videoRef, status, gesture, isSleeping, prayerProgress }
 }

@@ -75,7 +75,7 @@ declare global {
         visible: boolean
         x: number
         y: number
-        mode: 'idle' | 'panning' | 'zooming'
+        mode: 'idle' | 'panning' | 'zooming' | 'prayer'
         hovering: boolean
         dwellProgress: number
         ramp: number

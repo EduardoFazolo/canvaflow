@@ -71,6 +71,7 @@ ipcRenderer.on('maestro:cursor-update', (_e, d) => {
   let base, color
   if      (d.mode === 'panning') { base = 28; color = '#60a5fa' }
   else if (d.mode === 'zooming') { base = 24; color = '#34d399' }
+  else if (d.mode === 'prayer')  { base = 22; color = '#fbbf24' }
   else                           { base = 18; color = '#a78bfa' }
 
   const sz = 18 + (base - 18) * d.ramp

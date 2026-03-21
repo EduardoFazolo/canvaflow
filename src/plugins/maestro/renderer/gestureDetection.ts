@@ -67,6 +67,39 @@ export function twoHandDistance(lm1: Landmark[], lm2: Landmark[]): number {
   return Math.sqrt((c1.x - c2.x) ** 2 + (c1.y - c2.y) ** 2)
 }
 
+/**
+ * Domain Expansion gesture: fingertips of both hands meet at the top while
+ * wrists/palms are spread apart — forming an "A" / triangle shape.
+ * (Opposite of prayer: palms apart, fingertips touching.)
+ * Held for DOMAIN_HOLD_DURATION ms → toggles Maestro sleep/wake.
+ *
+ * Detection:
+ *  - Index fingertips of both hands are close (tips touching at top)
+ *  - Palm centroids are spread apart (wrists wide)
+ *  - Index fingers pointing upward on both hands
+ */
+export const DOMAIN_TIP_THRESHOLD  = 0.10  // max normalized dist between index tips
+export const DOMAIN_PALM_MIN       = 0.18  // min palm centroid dist (hands must be spread)
+
+export function isDomainExpansion(lm1: Landmark[], lm2: Landmark[]): boolean {
+  // Both index AND middle fingertips must be close — requires actual hand contact
+  if (landmarkDist(lm1[INDEX_TIP],  lm2[INDEX_TIP])  > DOMAIN_TIP_THRESHOLD) return false
+  if (landmarkDist(lm1[MIDDLE_TIP], lm2[MIDDLE_TIP]) > DOMAIN_TIP_THRESHOLD) return false
+  // Palms must be spread apart (forming the triangle base)
+  if (twoHandDistance(lm1, lm2) < DOMAIN_PALM_MIN) return false
+  // Index fingers pointing upward on both hands
+  return lm1[INDEX_TIP].y < lm1[INDEX_MCP].y && lm2[INDEX_TIP].y < lm2[INDEX_MCP].y
+}
+
+/**
+ * Returns true when the two hands' index fingertips are close enough
+ * to be considered "touching" — used to block zoom from firing during
+ * domain expansion approach.
+ */
+export function areFingertipsTouching(lm1: Landmark[], lm2: Landmark[]): boolean {
+  return landmarkDist(lm1[INDEX_TIP], lm2[INDEX_TIP]) < DOMAIN_TIP_THRESHOLD * 1.4
+}
+
 // --- Tuning constants ---
 
 /**
