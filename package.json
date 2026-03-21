@@ -30,6 +30,7 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.33",
     "@monaco-editor/react": "^4.7.0",
     "@shikijs/monaco": "^4.0.2",
     "@tailwindcss/vite": "^4.2.1",

@@ -70,6 +70,18 @@ declare global {
       set: (key: string, value: string) => Promise<void>
     }
 
+    maestro: {
+      updateCursor: (data: {
+        visible: boolean
+        x: number
+        y: number
+        mode: 'idle' | 'panning' | 'zooming'
+        hovering: boolean
+        dwellProgress: number
+        ramp: number
+      }) => void
+    }
+
     app: {
       onShortcut: (cb: (name: string) => void) => () => void
       notionPreloadPath: () => Promise<string>

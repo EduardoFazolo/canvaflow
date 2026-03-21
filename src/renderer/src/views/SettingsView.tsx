@@ -51,6 +51,44 @@ export function SettingsView(): React.ReactElement {
               </SettingRow>
             </Section>
 
+            <Section label="Enhancements">
+              <SettingRow
+                label="Maestro Hand-gestures"
+                hint="Control the canvas with your webcam. Open palm to pan, pinch to zoom. Runs alongside mouse and keyboard — does not replace them."
+              >
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <div
+                    onClick={() => update({ maestroEnabled: !settings.maestroEnabled })}
+                    style={{
+                      width: 36,
+                      height: 20,
+                      borderRadius: 10,
+                      background: settings.maestroEnabled ? 'rgba(167,139,250,0.7)' : 'rgba(255,255,255,0.1)',
+                      border: `1px solid ${settings.maestroEnabled ? 'rgba(167,139,250,0.9)' : 'rgba(255,255,255,0.15)'}`,
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute',
+                      top: 2,
+                      left: settings.maestroEnabled ? 17 : 2,
+                      width: 14,
+                      height: 14,
+                      borderRadius: '50%',
+                      background: '#fff',
+                      transition: 'left 0.15s',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: settings.maestroEnabled ? '#c4b5fd' : 'rgba(255,255,255,0.35)' }}>
+                    {settings.maestroEnabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </label>
+              </SettingRow>
+            </Section>
+
             <Section label="Terminal">
               <SettingRow
                 label="Shell"

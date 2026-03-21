@@ -223,6 +223,10 @@ contextBridge.exposeInMainWorld('lovable', {
     ipcRenderer.invoke('lovable:install-mcp-global'),
 })
 
+contextBridge.exposeInMainWorld('maestro', {
+  updateCursor: (data: object) => ipcRenderer.send('maestro:cursor-update', data),
+})
+
 contextBridge.exposeInMainWorld('notion', {
   fetchPage: (partition: string, pageId: string): Promise<NotionPageChunk> =>
     ipcRenderer.invoke('notion:fetchPage', partition, pageId),

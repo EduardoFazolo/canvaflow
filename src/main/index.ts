@@ -11,6 +11,7 @@ import { registerNotionHandlers } from '../plugins/notion/main/handlers'
 import { registerTrelloHandlers } from '../plugins/trello/main/handlers'
 import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
+import { createCursorOverlay, setupCursorOverlayHandlers } from '../plugins/maestro/main/cursorOverlay'
 
 // Suppress noisy Chromium GPU/Skia internal errors that are benign in webview usage
 app.commandLine.appendSwitch('log-level', '3')
@@ -36,6 +37,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow!.show()
+    createCursorOverlay(mainWindow!)
   })
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -122,6 +124,7 @@ app.whenReady().then(async () => {
   }
   setupWorkspaceHandlers()
   setupBrowserViewHandlers()
+  setupCursorOverlayHandlers()
   registerNotionHandlers(ipcMain)
   registerTrelloHandlers(ipcMain)
   registerGitHandlers(ipcMain)

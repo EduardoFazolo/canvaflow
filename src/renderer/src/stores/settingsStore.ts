@@ -4,12 +4,14 @@ export interface Settings {
   shell: string                          // default shell for new terminals (empty = use system default)
   fontSize: number                       // xterm.js font size
   navStyle: 'default' | 'trackpad'      // canvas navigation style
+  maestroEnabled: boolean               // Maestro Hand-gestures plugin
 }
 
 const DEFAULTS: Settings = {
   shell: '',
   fontSize: 13,
   navStyle: 'default',
+  maestroEnabled: false,
 }
 
 interface SettingsStore {

@@ -9,10 +9,14 @@ import { NodeLayer } from './NodeLayer'
 import { ConnectionLayer } from './ConnectionLayer'
 import { CanvasContextMenu } from './CanvasContextMenu'
 import { createNotionNoteFromDrop, NotionCanvasDropPayload } from '../../../plugins/notion/utils/notionDrag'
+import { useHandGestureNavigation } from '../../../plugins/maestro/renderer/useHandGestureNavigation'
+import { GestureOverlay } from '../../../plugins/maestro/renderer/GestureOverlay'
 
 export function Canvas(): React.ReactElement {
   const { camera, pan, zoomAt } = useCameraStore()
   const rootRef = useRef<HTMLDivElement>(null)
+
+  const { videoRef, status: maestroStatus, gesture: maestroGesture } = useHandGestureNavigation()
   const isPanningRef = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
   const spaceHeldRef = useRef(false)
@@ -145,34 +149,36 @@ export function Canvas(): React.ReactElement {
   }, [])
 
   return (
-    <CanvasContextMenu camera={camera}>
-      <div
-        id="canvas-viewport"
-        ref={rootRef}
-        style={{
-          position: 'relative',
-          width: '100vw',
-          height: '100vh',
-          overflow: 'hidden',
-          cursor: spaceHeld ? 'grab' : 'default',
-          outline: 'none',
-        }}
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onKeyDown={onKeyDown}
-        onKeyUp={onKeyUp}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-      >
-        <GridRenderer camera={camera} />
-        <CanvasOverlay camera={camera}>
-          <ConnectionLayer />
-          <NodeLayer />
-        </CanvasOverlay>
-
-      </div>
-    </CanvasContextMenu>
+    <>
+      <CanvasContextMenu camera={camera}>
+        <div
+          id="canvas-viewport"
+          ref={rootRef}
+          style={{
+            position: 'relative',
+            width: '100vw',
+            height: '100vh',
+            overflow: 'hidden',
+            cursor: spaceHeld ? 'grab' : 'default',
+            outline: 'none',
+          }}
+          tabIndex={0}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onKeyDown={onKeyDown}
+          onKeyUp={onKeyUp}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
+          <GridRenderer camera={camera} />
+          <CanvasOverlay camera={camera}>
+            <ConnectionLayer />
+            <NodeLayer />
+          </CanvasOverlay>
+        </div>
+      </CanvasContextMenu>
+      <GestureOverlay videoRef={videoRef} status={maestroStatus} gesture={maestroGesture} />
+    </>
   )
 }

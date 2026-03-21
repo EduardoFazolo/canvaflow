@@ -5,6 +5,7 @@
     "": {
       "name": "canvaflow",
       "dependencies": {
+        "@mediapipe/tasks-vision": "^0.10.33",
         "@monaco-editor/react": "^4.7.0",
         "@shikijs/monaco": "^4.0.2",
         "@tailwindcss/vite": "^4.2.1",
@@ -256,6 +257,8 @@
     "@malept/cross-spawn-promise": ["@malept/cross-spawn-promise@2.0.0", "", { "dependencies": { "cross-spawn": "^7.0.1" } }, "sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg=="],
 
     "@malept/flatpak-bundler": ["@malept/flatpak-bundler@0.4.0", "", { "dependencies": { "debug": "^4.1.1", "fs-extra": "^9.0.0", "lodash": "^4.17.15", "tmp-promise": "^3.0.2" } }, "sha512-9QOtNffcOF/c1seMCDnjckb3R9WHcG34tky+FHpNKKCW0wc/scYLwMtO+ptyGUfMW0/b/n4qRiALlaFHc9Oj7Q=="],
+
+    "@mediapipe/tasks-vision": ["@mediapipe/tasks-vision@0.10.33", "", {}, "sha512-Hh41r6ezzz6aeT1e3aJHjLaeVKtz7yhHLjVMQpoxg2fEgA8HRByS2KNMU28ahtDjJRJNCyDHWb2tJWVAyshyMw=="],
 
     "@monaco-editor/loader": ["@monaco-editor/loader@1.7.0", "", { "dependencies": { "state-local": "^1.0.6" } }, "sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA=="],
 
