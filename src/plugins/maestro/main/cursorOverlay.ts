@@ -100,6 +100,12 @@ ipcRenderer.on('maestro:cursor-update', (_e, d) => {
 </html>`
 
 export function createCursorOverlay(parent: BrowserWindow): void {
+  // Destroy any stale overlay (e.g. from a dev hot-reload) before creating a new one
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.close()
+    overlayWindow = null
+  }
+
   const [x, y] = parent.getPosition()
   const [w, h] = parent.getSize()
 
@@ -137,6 +143,8 @@ export function createCursorOverlay(parent: BrowserWindow): void {
 }
 
 export function setupCursorOverlayHandlers(): void {
+  // Remove any previously-registered listener (guards against dev hot-reload duplicates)
+  ipcMain.removeAllListeners('maestro:cursor-update')
   ipcMain.on('maestro:cursor-update', (_e, data) => {
     if (!overlayWindow?.isDestroyed()) {
       overlayWindow?.webContents.send('maestro:cursor-update', data)

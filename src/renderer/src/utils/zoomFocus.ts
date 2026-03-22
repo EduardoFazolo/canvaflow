@@ -21,6 +21,44 @@ export function zoomExit(): void {
   state.nodeId = null
 }
 
+/** Returns the node currently zoomed into, or null if none. */
+export function getFocusedNodeId(): string | null {
+  return state.nodeId
+}
+
+/**
+ * When a node is focused, move to the adjacent node in the given direction,
+ * sorted by center X. Wraps around at either end so continuous swiping
+ * cycles through all nodes indefinitely.
+ */
+export function swipeToAdjacentNode(direction: 'left' | 'right'): void {
+  if (!state.nodeId) return
+  const allNodes = useNodeStore.getState().nodes
+  if (allNodes.size < 2) return
+
+  // Sort all nodes by center X (left → right on canvas)
+  const sorted = Array.from(allNodes.values()).sort(
+    (a, b) => (a.x + a.width / 2) - (b.x + b.width / 2)
+  )
+
+  const currentIdx = sorted.findIndex(n => n.id === state.nodeId)
+  if (currentIdx === -1) return
+
+  const nextIdx = direction === 'right'
+    ? (currentIdx + 1) % sorted.length          // wrap: last → first
+    : (currentIdx - 1 + sorted.length) % sorted.length  // wrap: first → last
+
+  // Directly animate to the target without going through zoomFitNode's
+  // "second tap = zoom out" logic
+  const target = sorted[nextIdx]
+  const { width: vw, height: vh } = getCanvasRect()
+  const camera = computeFitCamera(new Map([[target.id, target]]), vw, vh)
+  if (camera) {
+    state.nodeId = target.id
+    animateCameraTo(camera)
+  }
+}
+
 export function zoomFitNode(nodeId: string): void {
   const { width: vw, height: vh } = getCanvasRect()
   const allNodes = useNodeStore.getState().nodes

@@ -6,14 +6,17 @@ import { useSettingsStore } from '../../../renderer/src/stores/settingsStore'
 import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
 import type { Camera } from '../../../renderer/src/stores/cameraStore'
 import { useNodeStore } from '../../../renderer/src/stores/nodeStore'
-import { zoomFitNode } from '../../../renderer/src/utils/zoomFocus'
+import { zoomFitNode, zoomExit, swipeToAdjacentNode } from '../../../renderer/src/utils/zoomFocus'
 import {
   INDEX_TIP,
   palmCentroid,
   isOpenPalm,
+  isGunGesture,
   isDomainExpansion,
-  areFingertipsTouching,
-  twoHandDistance,
+  isVoidHands,
+  isPalmFacing,
+  isPointingDown,
+  extendedFingerCount,
   PAN_SENSITIVITY,
   PAN_DEADZONE,
 } from './gestureDetection'
@@ -31,6 +34,12 @@ const MAX_ZOOM  = 5
 const RAMP_DURATION   = 280
 /** ms Domain Expansion gesture must be held to toggle sleep/wake. */
 const PRAYER_HOLD_DURATION = 1500
+/** ms Void Hands gesture must be held to toggle zoom mode. */
+const ZOOM_MODE_HOLD_DURATION = 1500
+/** Per-frame zoom multiplier when palm faces camera (zoom in). ~1.43× per second at 60fps. */
+const ZOOM_IN_RATE  = 1.012
+/** Per-frame zoom multiplier when fingers point down (zoom out). */
+const ZOOM_OUT_RATE = 0.988
 /** EMA factor for cursor position smoothing (0=frozen, 1=raw). */
 const CURSOR_SMOOTH   = 0.38
 /** Lerp factor applied to camera per frame — gives smooth follow + coasting. */
@@ -38,13 +47,23 @@ const CAMERA_LERP     = 0.16
 /** ms hovering over a node before zoom-fit fires. */
 const DWELL_DURATION  = 700
 const DWELL_COOLDOWN  = 1200
+/** Normalized x distance hand must travel to snap to adjacent node in browse mode. */
+const BROWSE_SNAP_DIST     = 0.20
+/** ms gun gesture must be held to exit browse mode. */
+const BROWSE_EXIT_DURATION = 700
+/** ms cooldown between node snaps in browse mode. */
+const BROWSE_SNAP_COOLDOWN = 500
 
 export function useHandGestureNavigation(): {
-  videoRef:       RefObject<HTMLVideoElement | null>
-  status:         GestureStatus
-  gesture:        ActiveGesture
-  isSleeping:     boolean
-  prayerProgress: number
+  videoRef:           RefObject<HTMLVideoElement | null>
+  status:             GestureStatus
+  gesture:            ActiveGesture
+  isSleeping:         boolean
+  prayerProgress:     number
+  isBrowsing:         boolean
+  browseExitProgress: number
+  isZoomMode:         boolean
+  zoomToggleProgress: number
 } {
   const enabled = useSettingsStore(s => s.settings.maestroEnabled)
 
@@ -79,6 +98,23 @@ export function useHandGestureNavigation(): {
   const dwellNodeId    = useRef<string | null>(null)
   const dwellStartTime = useRef<number | null>(null)
   const dwellCooldown  = useRef(false)
+  const focusCooldown  = useRef(false)  // 1s global cooldown after focus fires
+
+  // Browse mode (node sliding when focused)
+  const [isBrowsing,         setIsBrowsing]         = useState(false)
+  const [browseExitProgress, setBrowseExitProgress] = useState(0)
+  const browseModeRef     = useRef(false)
+  const browseLastSnapX   = useRef(0)
+  const browseSnapCooldown = useRef(false)
+  const browseStillStart  = useRef<number | null>(null)
+  const browsePalmHistory = useRef<Array<{ x: number; t: number }>>([])
+
+  // Zoom mode (void hands toggle → one-hand palm/back zoom)
+  const [isZoomMode,         setIsZoomMode]         = useState(false)
+  const [zoomToggleProgress, setZoomToggleProgress] = useState(0)
+  const isZoomModeRef  = useRef(false)
+  const voidHoldStart  = useRef<number | null>(null)
+  const voidFiredRef   = useRef(false)
 
   // Cursor smoothing (EMA)
   const smoothX = useRef<number | null>(null)
@@ -149,6 +185,8 @@ export function useHandGestureNavigation(): {
     gestureRampStart.current = null
     dwellNodeId.current    = null
     dwellStartTime.current = null
+    browsePalmHistory.current = []
+    browseStillStart.current  = null
     resetSmoothing()
   }
 
@@ -209,78 +247,54 @@ export function useHandGestureNavigation(): {
       return
     }
 
-    // ── Two hands (both open, not touching) → zoom ───────────────────────
-    if (landmarks.length >= 2 && isOpenPalm(landmarks[0]) && isOpenPalm(landmarks[1])
-        && !areFingertipsTouching(landmarks[0], landmarks[1])) {
-      const dist = twoHandDistance(landmarks[0], landmarks[1])
-
-      if (gestureModeRef.current !== 'zooming') {
-        zoomStartCam.current  = { ...useCameraStore.getState().camera }
-        zoomStartDist.current = dist
-        panStartCam.current   = null
-        panStartPalm.current  = null
-        dwellNodeId.current   = null
-        setGestureMode('zooming')
+    // ── Void Hands → zoom mode toggle ────────────────────────────────────
+    if (landmarks.length >= 2 && isVoidHands(landmarks[0], landmarks[1])) {
+      if (voidHoldStart.current === null) {
+        voidHoldStart.current = now
+        voidFiredRef.current  = false
       }
-
-      if (zoomStartCam.current && zoomStartDist.current !== null) {
-        const spreadRatio = dist / zoomStartDist.current
-        const ramp = getRamp(now)
-
-        // Ramp interpolates spreadRatio from neutral (1) toward actual — accidental
-        // two-hand frames have near-zero effect during the ramp window.
-        const effectiveRatio = 1 + (spreadRatio - 1) * ramp
-        const targetZoom     = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM,
-          zoomStartCam.current.zoom * effectiveRatio
-        ))
-
-        // Lerp current zoom toward target — prevents snapping, adds coasting
-        const currentCam = useCameraStore.getState().camera
-        const lerpedZoom = currentCam.zoom + (targetZoom - currentCam.zoom) * CAMERA_LERP
-        const zoomRatio  = lerpedZoom / zoomStartCam.current.zoom
-        const cx = w / 2, cy = h / 2
-        setCamera({
-          zoom: lerpedZoom,
-          x: cx - zoomRatio * (cx - zoomStartCam.current.x),
-          y: cy - zoomRatio * (cy - zoomStartCam.current.y),
-        })
+      const progress = Math.min(1, (now - voidHoldStart.current) / ZOOM_MODE_HOLD_DURATION)
+      setZoomToggleProgress(progress)
+      if (progress >= 1 && !voidFiredRef.current) {
+        voidFiredRef.current    = true
+        isZoomModeRef.current   = !isZoomModeRef.current
+        setIsZoomMode(isZoomModeRef.current)
+        resetGestureState()
+        hideCursor()
+        return
       }
-
-      // Cursor at midpoint between palms — smooth it
       const c1  = palmCentroid(landmarks[0])
       const c2  = palmCentroid(landmarks[1])
       const raw = toScreen((c1.x + c2.x) / 2, (c1.y + c2.y) / 2)
       const pos = smoothCursor(raw.x, raw.y)
-      updateCursor(pos.x, pos.y, 'zooming', false, 0, getRamp(now))
+      updateCursor(pos.x, pos.y, 'zooming', false, progress, 1)
       return
-    }
-
-    // ── Dropped from zoom (hands closed, separated, or touching) → reset ─
-    if (gestureModeRef.current === 'zooming') {
-      zoomStartCam.current  = null
-      zoomStartDist.current = null
-      resetSmoothing()
-      setGestureMode('idle')
+    } else {
+      if (voidHoldStart.current !== null) {
+        voidHoldStart.current = null
+        voidFiredRef.current  = false
+        setZoomToggleProgress(0)
+      }
     }
 
     // ── One hand ─────────────────────────────────────────────────────────
     if (landmarks.length === 1) {
       const lm       = landmarks[0]
       const openPalm = isOpenPalm(lm)
+      const gunGesture = isGunGesture(lm)
 
-      // Cursor tracks index tip when pointing, palm centroid when panning
-      const cursorLandmark = openPalm ? palmCentroid(lm) : lm[INDEX_TIP]
-      const rawScreen      = toScreen(cursorLandmark.x, cursorLandmark.y)
-      const cursorPos      = smoothCursor(rawScreen.x, rawScreen.y)
-
+      // ── Open palm → PAN (no node interaction) ────────────────────────
       if (openPalm) {
-        // ── Pan ──────────────────────────────────────────────────────────
         const palm = palmCentroid(lm)
+        const rawScreen = toScreen(palm.x, palm.y)
+        const cursorPos = smoothCursor(rawScreen.x, rawScreen.y)
 
+        // Reset dwell when switching to pan
         if (gestureModeRef.current !== 'panning') {
           panStartCam.current  = { ...useCameraStore.getState().camera }
           panStartPalm.current = palm
           dwellNodeId.current  = null
+          dwellStartTime.current = null
           setGestureMode('panning')
           updateCursor(cursorPos.x, cursorPos.y, 'panning', false, 0, getRamp(now))
           return
@@ -290,17 +304,13 @@ export function useHandGestureNavigation(): {
           const rawDx = palm.x - panStartPalm.current.x
           const rawDy = palm.y - panStartPalm.current.y
           const moved = Math.sqrt(rawDx * rawDx + rawDy * rawDy)
-
           if (moved < PAN_DEADZONE) {
-            // Float reference with resting hand so movement starts clean
             panStartCam.current  = { ...useCameraStore.getState().camera }
             panStartPalm.current = palm
           } else {
             const ramp    = getRamp(now)
             const targetX = panStartCam.current.x + (-rawDx * w * PAN_SENSITIVITY * ramp)
             const targetY = panStartCam.current.y + ( rawDy * h * PAN_SENSITIVITY * ramp)
-
-            // Lerp camera toward target — smooth follow with natural coasting
             const current = useCameraStore.getState().camera
             setCamera({
               ...current,
@@ -312,14 +322,16 @@ export function useHandGestureNavigation(): {
 
         updateCursor(cursorPos.x, cursorPos.y, 'panning', false, 0, getRamp(now))
 
-      } else {
-        // ── Idle / pointing — cursor + dwell-to-focus ────────────────────
+      } else if (gunGesture) {
+        // ── Gun gesture → dwell-to-focus ─────────────────────────────────
         if (gestureModeRef.current === 'panning') {
           panStartCam.current  = null
           panStartPalm.current = null
           setGestureMode('idle')
         }
 
+        const rawScreen = toScreen(lm[INDEX_TIP].x, lm[INDEX_TIP].y)
+        const cursorPos = smoothCursor(rawScreen.x, rawScreen.y)
         const hitNodeId = hitTestScreen(cursorPos.x, cursorPos.y)
 
         if (hitNodeId !== dwellNodeId.current) {
@@ -329,15 +341,37 @@ export function useHandGestureNavigation(): {
         }
 
         let dwellProgress = 0
-        if (dwellNodeId.current && dwellStartTime.current !== null && !dwellCooldown.current) {
+        if (dwellNodeId.current && dwellStartTime.current !== null && !dwellCooldown.current && !focusCooldown.current) {
           dwellProgress = Math.min(1, (now - dwellStartTime.current) / DWELL_DURATION)
           if (dwellProgress >= 1) {
             dwellCooldown.current = true
+            focusCooldown.current = true
+            setTimeout(() => { focusCooldown.current = false }, 1000)
             zoomFitNode(dwellNodeId.current)
+            browseModeRef.current     = true
+            browseLastSnapX.current   = palmCentroid(lm).x
+            browsePalmHistory.current = []
+            browseStillStart.current  = null
+            setIsBrowsing(true)
           }
         }
 
         updateCursor(cursorPos.x, cursorPos.y, 'idle', hitNodeId !== null, dwellProgress, 1)
+
+      } else {
+        // ── Neutral → cursor only, no action ─────────────────────────────
+        if (gestureModeRef.current === 'panning') {
+          panStartCam.current  = null
+          panStartPalm.current = null
+          setGestureMode('idle')
+        }
+        // Clear dwell when not in gun pose
+        dwellNodeId.current    = null
+        dwellStartTime.current = null
+
+        const rawScreen = toScreen(lm[INDEX_TIP].x, lm[INDEX_TIP].y)
+        const cursorPos = smoothCursor(rawScreen.x, rawScreen.y)
+        updateCursor(cursorPos.x, cursorPos.y, 'idle', false, 0, 1)
       }
 
     } else {
@@ -350,6 +384,175 @@ export function useHandGestureNavigation(): {
     }
   }
 
+  // ── Zoom mode frame processing ────────────────────────────────────────────
+
+  function processZoomModeFrame(landmarks: NormalizedLandmark[][]): void {
+    const now = performance.now()
+    const cx  = window.innerWidth / 2
+    const cy  = window.innerHeight / 2
+    const { setCamera } = useCameraStore.getState()
+
+    // Domain expansion still toggles sleep from zoom mode
+    if (landmarks.length >= 2 && isDomainExpansion(landmarks[0], landmarks[1])) {
+      if (prayerHoldStart.current === null) { prayerHoldStart.current = now; prayerFiredRef.current = false }
+      const progress = Math.min(1, (now - prayerHoldStart.current) / PRAYER_HOLD_DURATION)
+      setPrayerProgress(progress)
+      if (progress >= 1 && !prayerFiredRef.current) {
+        prayerFiredRef.current = true
+        isSleepingRef.current  = true
+        setIsSleeping(true)
+        isZoomModeRef.current  = false
+        setIsZoomMode(false)
+        resetGestureState(); hideCursor(); return
+      }
+      const c1 = palmCentroid(landmarks[0]), c2 = palmCentroid(landmarks[1])
+      const raw2 = toScreen((c1.x + c2.x) / 2, (c1.y + c2.y) / 2)
+      const pos  = smoothCursor(raw2.x, raw2.y)
+      updateCursor(pos.x, pos.y, 'prayer', false, progress, 1)
+      return
+    } else {
+      if (prayerHoldStart.current !== null) { prayerHoldStart.current = null; prayerFiredRef.current = false; setPrayerProgress(0) }
+    }
+
+    // Void hands again → exit zoom mode
+    if (landmarks.length >= 2 && isVoidHands(landmarks[0], landmarks[1])) {
+      if (voidHoldStart.current === null) { voidHoldStart.current = now; voidFiredRef.current = false }
+      const progress = Math.min(1, (now - voidHoldStart.current) / ZOOM_MODE_HOLD_DURATION)
+      setZoomToggleProgress(progress)
+      if (progress >= 1 && !voidFiredRef.current) {
+        voidFiredRef.current  = true
+        isZoomModeRef.current = false
+        setIsZoomMode(false)
+        setZoomToggleProgress(0)
+        hideCursor(); return
+      }
+      const c1 = palmCentroid(landmarks[0]), c2 = palmCentroid(landmarks[1])
+      const raw = toScreen((c1.x + c2.x) / 2, (c1.y + c2.y) / 2)
+      const pos = smoothCursor(raw.x, raw.y)
+      updateCursor(pos.x, pos.y, 'zooming', false, progress, 1)
+      return
+    } else {
+      if (voidHoldStart.current !== null) { voidHoldStart.current = null; voidFiredRef.current = false; setZoomToggleProgress(0) }
+    }
+
+    if (landmarks.length === 0) { hideCursor(); return }
+
+    const lm = landmarks[0]
+
+    if (isPalmFacing(lm)) {
+      // Palm toward camera → zoom in
+      const cam    = useCameraStore.getState().camera
+      const newZoom = Math.min(MAX_ZOOM, cam.zoom * ZOOM_IN_RATE)
+      const ratio   = newZoom / cam.zoom
+      setCamera({ zoom: newZoom, x: cx - ratio * (cx - cam.x), y: cy - ratio * (cy - cam.y) })
+      const raw = toScreen(palmCentroid(lm).x, palmCentroid(lm).y)
+      const pos1 = smoothCursor(raw.x, raw.y)
+      updateCursor(pos1.x, pos1.y, 'zooming', false, 0, 1)
+    } else if (isPointingDown(lm)) {
+      // Fingers pointing down → zoom out
+      const cam     = useCameraStore.getState().camera
+      const newZoom = Math.max(MIN_ZOOM, cam.zoom * ZOOM_OUT_RATE)
+      const ratio   = newZoom / cam.zoom
+      setCamera({ zoom: newZoom, x: cx - ratio * (cx - cam.x), y: cy - ratio * (cy - cam.y) })
+      const raw = toScreen(palmCentroid(lm).x, palmCentroid(lm).y)
+      const pos2 = smoothCursor(raw.x, raw.y)
+      updateCursor(pos2.x, pos2.y, 'zooming', false, 0, 1)
+    } else {
+      // Neutral — cursor only, no zoom
+      const raw = toScreen(lm[INDEX_TIP].x, lm[INDEX_TIP].y)
+      const pos = smoothCursor(raw.x, raw.y)
+      updateCursor(pos.x, pos.y, 'idle', false, 0, 1)
+    }
+  }
+
+  // ── Browse mode frame processing ─────────────────────────────────────────
+
+  function processBrowseFrame(landmarks: NormalizedLandmark[][]): void {
+    const now = performance.now()
+
+    // Domain expansion still toggles sleep from browse mode
+    if (landmarks.length >= 2 && isDomainExpansion(landmarks[0], landmarks[1])) {
+      if (prayerHoldStart.current === null) { prayerHoldStart.current = now; prayerFiredRef.current = false }
+      const progress = Math.min(1, (now - prayerHoldStart.current) / PRAYER_HOLD_DURATION)
+      setPrayerProgress(progress)
+      if (progress >= 1 && !prayerFiredRef.current) {
+        prayerFiredRef.current = true
+        isSleepingRef.current  = true
+        setIsSleeping(true)
+        browseModeRef.current  = false
+        setIsBrowsing(false)
+        resetGestureState(); hideCursor(); return
+      }
+      const c1 = palmCentroid(landmarks[0]), c2 = palmCentroid(landmarks[1])
+      const raw = toScreen((c1.x + c2.x) / 2, (c1.y + c2.y) / 2)
+      updateCursor(raw.x, raw.y, 'prayer', false, progress, 1)
+      return
+    } else {
+      if (prayerHoldStart.current !== null) { prayerHoldStart.current = null; prayerFiredRef.current = false; setPrayerProgress(0) }
+    }
+
+    if (landmarks.length === 0) {
+      setBrowseExitProgress(0)
+      browseStillStart.current = null
+      hideCursor()
+      return
+    }
+
+    const lm  = landmarks[0]
+    const gun = isGunGesture(lm)
+
+    // ── Gun gesture held → exit browse mode ───────────────────────────
+    if (gun) {
+      if (browseStillStart.current === null) browseStillStart.current = now
+      const exitProgress = Math.min(1, (now - browseStillStart.current) / BROWSE_EXIT_DURATION)
+      setBrowseExitProgress(exitProgress)
+
+      // Show gun cursor with exit ring
+      const rawScreen = toScreen(lm[INDEX_TIP].x, lm[INDEX_TIP].y)
+      const cursorPos = smoothCursor(rawScreen.x, rawScreen.y)
+      updateCursor(cursorPos.x, cursorPos.y, 'idle', false, exitProgress, 1)
+
+      if (exitProgress >= 1) {
+        browseModeRef.current     = false
+        browseStillStart.current  = null
+        browsePalmHistory.current = []
+        setIsBrowsing(false)
+        setBrowseExitProgress(0)
+        resetSmoothing()
+        zoomExit()
+      }
+      return
+    }
+
+    // Reset exit timer when not in gun pose
+    if (browseStillStart.current !== null) {
+      browseStillStart.current = null
+      setBrowseExitProgress(0)
+    }
+    hideCursor()
+
+    // ── Slide to adjacent node (open hand only, 3+ fingers) ───────────
+    const palm      = palmCentroid(lm)
+    const handOpen  = extendedFingerCount(lm) >= 3
+
+    if (browseSnapCooldown.current) {
+      // Float reference during cooldown — prevents return-swipe triggering opposite direction
+      browseLastSnapX.current = palm.x
+    } else if (handOpen) {
+      const dx = palm.x - browseLastSnapX.current
+      if (Math.abs(dx) > BROWSE_SNAP_DIST) {
+        browseSnapCooldown.current = true
+        browseLastSnapX.current    = palm.x
+        swipeToAdjacentNode(dx > 0 ? 'left' : 'right')  // video mirrored
+        setTimeout(() => { browseSnapCooldown.current = false }, BROWSE_SNAP_COOLDOWN)
+      }
+    } else {
+      // Hand not open — float the reference so closing/reopening hand
+      // doesn't immediately trigger a snap from accumulated drift
+      browseLastSnapX.current = palm.x
+    }
+  }
+
   // ── Detection loop ───────────────────────────────────────────────────────
 
   function startDetectionLoop(): void {
@@ -358,7 +561,13 @@ export function useHandGestureNavigation(): {
       if (videoRef.current.readyState >= 2) {
         try {
           const results = landmarkerRef.current.detectForVideo(videoRef.current, performance.now())
-          processFrame(results.landmarks)
+          if (browseModeRef.current) {
+            processBrowseFrame(results.landmarks)
+          } else if (isZoomModeRef.current) {
+            processZoomModeFrame(results.landmarks)
+          } else {
+            processFrame(results.landmarks)
+          }
         } catch { /* transient — continue */ }
       }
       rafRef.current = requestAnimationFrame(loop)
@@ -427,5 +636,5 @@ export function useHandGestureNavigation(): {
     return () => { cancelled = true; cleanup() }
   }, [enabled])
 
-  return { videoRef, status, gesture, isSleeping, prayerProgress }
+  return { videoRef, status, gesture, isSleeping, prayerProgress, isBrowsing, browseExitProgress, isZoomMode, zoomToggleProgress }
 }
