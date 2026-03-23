@@ -45,6 +45,15 @@ const AGENTS: Agent[] = [
     ),
   },
   {
+    id: 'codex',
+    label: 'Codex',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <path d="M5 5h4v4H5zM11 5h4v4h-4zM5 11h4v4H5zM11 11h4v4h-4z" fill="currentColor"/>
+      </svg>
+    ),
+  },
+  {
     id: 'note',
     label: 'Note',
     icon: (
@@ -168,7 +177,7 @@ export function NotionDropModal({ payload, onClose }: Props): React.ReactElement
       }
       return
     }
-    if (agentId !== 'claude') return
+    if (agentId !== 'claude' && agentId !== 'codex') return
     setLoading(true)
     try {
       const cwd = workspace?.path || ''
@@ -196,7 +205,7 @@ export function NotionDropModal({ payload, onClose }: Props): React.ReactElement
       const wx = (clientX - canvasRect.left - camera.x) / camera.zoom
       const wy = (clientY - canvasRect.top - camera.y) / camera.zoom
 
-      const newNode = useNodeStore.getState().add('claude', wx - 350, wy - 240, { cwd })
+      const newNode = useNodeStore.getState().add(agentId, wx - 350, wy - 240, { cwd })
 
       const nodeId = newNode.id
       const capturedText = text
@@ -315,7 +324,7 @@ export function NotionDropModal({ payload, onClose }: Props): React.ReactElement
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {AGENTS.map((agent) => {
               const isOrchestrate = agent.id === 'orchestrate'
-              const isPrimary = agent.id === 'claude'
+              const isPrimary = agent.id === 'claude' || agent.id === 'codex'
               const borderColor = isOrchestrate ? 'rgba(52,211,153,0.25)' : isPrimary ? 'rgba(167,139,250,0.25)' : 'rgba(255,255,255,0.08)'
               const bgColor = isOrchestrate ? 'rgba(52,211,153,0.07)' : isPrimary ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.04)'
               const borderHover = isOrchestrate ? 'rgba(52,211,153,0.45)' : isPrimary ? 'rgba(167,139,250,0.45)' : 'rgba(255,255,255,0.15)'

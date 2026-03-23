@@ -31,6 +31,7 @@ Plugins extend the canvas with self-contained embeds:
 
 - **Notion** — Embed any Notion page. Drag blocks from Notion onto the canvas. Export Notion content to rich text notes.
 - **Claude** — Persistent Claude AI chat panel (Cmd+Shift+C).
+- **Codex** — Persistent Codex AI chat panel (Cmd+Shift+X).
 - **Trello** — Browse boards and cards with checklist support.
 - **Browser** — Reusable webview wrapper for custom integrations.
 

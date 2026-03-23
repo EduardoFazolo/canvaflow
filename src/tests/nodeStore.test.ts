@@ -5,9 +5,16 @@ import type { NodeType } from '../renderer/src/stores/nodeStore'
 const DEFAULT_SIZES: Record<NodeType, { width: number; height: number }> = {
   terminal: { width: 600, height: 400 },
   browser: { width: 800, height: 600 },
+  browserv2: { width: 800, height: 600 },
   note: { width: 300, height: 200 },
   files: { width: 700, height: 480 },
   notion: { width: 900, height: 700 },
+  trello: { width: 900, height: 700 },
+  claude: { width: 700, height: 480 },
+  codex: { width: 700, height: 480 },
+  monaco: { width: 1000, height: 640 },
+  orchestrator: { width: 520, height: 300 },
+  subagent: { width: 460, height: 180 },
 }
 
 beforeEach(() => {

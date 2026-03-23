@@ -6,6 +6,7 @@ import '../../plugins/monaco/setup'
 import { pluginRegistry } from '../../plugins/types'
 import { notionPlugin } from '../../plugins/notion'
 import { claudePlugin } from '../../plugins/claude'
+import { codexPlugin } from '../../plugins/codex'
 import { monacoPlugin } from '../../plugins/monaco'
 import { trelloPlugin } from '../../plugins/trello'
 import { lovablePlugin } from '../../plugins/lovable'
@@ -14,6 +15,7 @@ import { orchestratorPlugin, subagentPlugin } from '../../plugins/orchestrator'
 // Register plugins before the app renders
 pluginRegistry.register(notionPlugin)
 pluginRegistry.register(claudePlugin)
+pluginRegistry.register(codexPlugin)
 pluginRegistry.register(monacoPlugin)
 pluginRegistry.register(trelloPlugin)
 pluginRegistry.register(lovablePlugin)

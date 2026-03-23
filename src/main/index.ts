@@ -65,6 +65,7 @@ function createWindow(): void {
     else if (mod && input.key === '-') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'zoomOut') }
     else if (mod && input.key === ',') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'settings') }
     else if (mod && input.shift && input.key === 'C') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newClaude') }
+    else if (mod && input.shift && input.key === 'X') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newCodex') }
     else if (mod && input.shift && input.key === 'E') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newEditor') }
     else if (mod && input.shift && input.key === 'L') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newLovable') }
     else if (mod && input.alt && input.key === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }

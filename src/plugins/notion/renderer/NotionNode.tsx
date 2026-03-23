@@ -270,7 +270,7 @@ const btnHover: React.CSSProperties = {
 
 interface DragDropTarget {
   nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude'
+  nodeType: 'terminal' | 'browser' | 'claude' | 'codex'
   title: string
   left: number
   top: number
@@ -326,7 +326,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
     const candidates = Array.from(useNodeStore.getState().nodes.values())
       .filter((candidate) =>
         candidate.id !== node.id &&
-        (candidate.type === 'terminal' || candidate.type === 'browser' || candidate.type === 'claude')
+        (candidate.type === 'terminal' || candidate.type === 'browser' || candidate.type === 'claude' || candidate.type === 'codex')
       )
       .map((candidate) => {
         const left = canvasRect.left + camera.x + candidate.x * camera.zoom
@@ -348,7 +348,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
 
     return {
       nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude',
+      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude' | 'codex',
       title: hit.candidate.title,
       left: hit.left,
       top: hit.top,
@@ -387,7 +387,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
           } catch {}
         }
 
-        if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
+        if (target.nodeType === 'terminal' || target.nodeType === 'claude' || target.nodeType === 'codex') {
           useNodeStore.getState().setFocusedNodeId(target.nodeId)
           window.terminal.write(target.nodeId, text)
           return
@@ -750,7 +750,13 @@ export function NotionNode({ node }: Props): React.ReactElement {
           boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
           textAlign: 'center',
         }}>
-          {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude' : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal' : 'Drop to copy into browser'}
+          {dropTarget.nodeType === 'claude'
+            ? 'Drop to send to Claude'
+            : dropTarget.nodeType === 'codex'
+              ? 'Drop to send to Codex'
+              : dropTarget.nodeType === 'terminal'
+                ? 'Drop to copy into terminal'
+                : 'Drop to copy into browser'}
         </div>
       </div>,
       document.body
