@@ -4,20 +4,33 @@ import { useNodeStore, NodeData } from '../stores/nodeStore'
 const TITLE_H = 32
 
 interface Connection {
-  claudeNode: NodeData   // node that owns connectedNodeId
-  lovableNode: NodeData  // the node it is connected to
+  sourceNode: NodeData
+  targetNode: NodeData
+  colorA: string
+  colorB: string
 }
 
 export function ConnectionLayer(): React.ReactElement | null {
   const nodes = useNodeStore((s) => s.nodes)
 
   const connections: Connection[] = []
+
   for (const node of nodes.values()) {
+    // Lovable ↔ Claude connections (existing)
     const connectedId = node.props?.connectedNodeId as string | undefined
-    if (!connectedId) continue
-    const lovable = nodes.get(connectedId)
-    if (!lovable) continue
-    connections.push({ claudeNode: node, lovableNode: lovable })
+    if (connectedId) {
+      const other = nodes.get(connectedId)
+      if (other) connections.push({ sourceNode: other, targetNode: node, colorA: '#fb923c', colorB: '#a78bfa' })
+    }
+
+    // Orchestrator → Subagent connections
+    if (node.type === 'orchestrator') {
+      const subagentIds = (node.props?.subagentIds as string[] | undefined) ?? []
+      for (const sid of subagentIds) {
+        const sub = nodes.get(sid)
+        if (sub) connections.push({ sourceNode: node, targetNode: sub, colorA: '#34d399', colorB: '#34d399' })
+      }
+    }
   }
 
   if (connections.length === 0) return null
@@ -44,14 +57,14 @@ export function ConnectionLayer(): React.ReactElement | null {
         `}</style>
       </defs>
 
-      {connections.map(({ claudeNode, lovableNode }) => {
-        // Right-center of the Lovable browser node
-        const x1 = lovableNode.x + lovableNode.width
-        const y1 = lovableNode.y + (lovableNode.minimized ? TITLE_H / 2 : lovableNode.height / 2)
+      {connections.map(({ sourceNode, targetNode, colorA, colorB }) => {
+        // Right-center of the source node
+        const x1 = sourceNode.x + sourceNode.width
+        const y1 = sourceNode.y + (sourceNode.minimized ? TITLE_H / 2 : sourceNode.height / 2)
 
-        // Left-center of the Claude node
-        const x2 = claudeNode.x
-        const y2 = claudeNode.y + (claudeNode.minimized ? TITLE_H / 2 : claudeNode.height / 2)
+        // Left-center of the target node
+        const x2 = targetNode.x
+        const y2 = targetNode.y + (targetNode.minimized ? TITLE_H / 2 : targetNode.height / 2)
 
         // Horizontal bezier control points
         const span = Math.abs(x2 - x1)
@@ -60,10 +73,10 @@ export function ConnectionLayer(): React.ReactElement | null {
         const cx2 = x2 - pull
 
         const d = `M ${x1} ${y1} C ${cx1} ${y1} ${cx2} ${y2} ${x2} ${y2}`
-        const gradId = `cf-wire-${claudeNode.id}`
+        const gradId = `cf-wire-${sourceNode.id}-${targetNode.id}`
 
         return (
-          <g key={claudeNode.id}>
+          <g key={gradId}>
             <defs>
               <linearGradient
                 id={gradId}
@@ -71,8 +84,8 @@ export function ConnectionLayer(): React.ReactElement | null {
                 x2={x2} y2={y2}
                 gradientUnits="userSpaceOnUse"
               >
-                <stop offset="0%"   stopColor="#fb923c" />
-                <stop offset="100%" stopColor="#a78bfa" />
+                <stop offset="0%"   stopColor={colorA} />
+                <stop offset="100%" stopColor={colorB} />
               </linearGradient>
             </defs>
 
@@ -105,13 +118,13 @@ export function ConnectionLayer(): React.ReactElement | null {
               style={{ animation: 'cf-wire-flow 0.85s linear infinite' }}
             />
 
-            {/* Source dot (Lovable / orange) */}
-            <circle cx={x1} cy={y1} r={3} fill="#fb923c" opacity={0.7} />
-            <circle cx={x1} cy={y1} r={5.5} fill="none" stroke="#fb923c" strokeWidth={1} opacity={0.25} />
+            {/* Source dot */}
+            <circle cx={x1} cy={y1} r={3} fill={colorA} opacity={0.7} />
+            <circle cx={x1} cy={y1} r={5.5} fill="none" stroke={colorA} strokeWidth={1} opacity={0.25} />
 
-            {/* Target dot (Claude / purple) */}
-            <circle cx={x2} cy={y2} r={3} fill="#a78bfa" opacity={0.7} />
-            <circle cx={x2} cy={y2} r={5.5} fill="none" stroke="#a78bfa" strokeWidth={1} opacity={0.25} />
+            {/* Target dot */}
+            <circle cx={x2} cy={y2} r={3} fill={colorB} opacity={0.7} />
+            <circle cx={x2} cy={y2} r={5.5} fill="none" stroke={colorB} strokeWidth={1} opacity={0.25} />
           </g>
         )
       })}
