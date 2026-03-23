@@ -4,6 +4,7 @@ import type {
   OrchestratorStartPayload,
   SubagentSpawnedEvent,
   OrchestratorStatusEvent,
+  OrchestratorStreamEvent,
   NoteUpdateEvent,
 } from '../plugins/orchestrator/shared/types'
 
@@ -271,6 +272,12 @@ contextBridge.exposeInMainWorld('orchestrator', {
     const listener = (_: unknown, event: NoteUpdateEvent) => cb(event)
     ipcRenderer.on('orchestrator:note-update', listener)
     return () => ipcRenderer.removeListener('orchestrator:note-update', listener)
+  },
+
+  onStream: (cb: (event: OrchestratorStreamEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: OrchestratorStreamEvent) => cb(event)
+    ipcRenderer.on('orchestrator:stream', listener)
+    return () => ipcRenderer.removeListener('orchestrator:stream', listener)
   },
 })
 

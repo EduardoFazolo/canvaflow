@@ -25,3 +25,8 @@ export interface OrchestratorStatusEvent {
   status: 'thinking' | 'done' | 'error'
   message?: string
 }
+
+export interface OrchestratorStreamEvent {
+  orchestratorId: string
+  text: string
+}

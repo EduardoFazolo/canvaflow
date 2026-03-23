@@ -3,6 +3,7 @@ import type {
   OrchestratorStartPayload,
   SubagentSpawnedEvent,
   OrchestratorStatusEvent,
+  OrchestratorStreamEvent,
   NoteUpdateEvent,
 } from '../../../plugins/orchestrator/shared/types'
 
@@ -110,6 +111,7 @@ declare global {
       onNodeCreated: (cb: (event: SubagentSpawnedEvent) => void) => () => void
       onStatus: (cb: (event: OrchestratorStatusEvent) => void) => () => void
       onNoteUpdate: (cb: (event: NoteUpdateEvent) => void) => () => void
+      onStream: (cb: (event: OrchestratorStreamEvent) => void) => () => void
     }
 
     lovable: {

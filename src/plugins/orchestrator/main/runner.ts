@@ -4,11 +4,10 @@ import type {
   OrchestratorStartPayload,
   SubagentSpawnedEvent,
   OrchestratorStatusEvent,
+  OrchestratorStreamEvent,
 } from '../shared/types'
 
-/** Trim long error messages so they fit in the status UI */
 function truncate(s: string, max = 300): string {
-  // Strip ANSI escape codes
   const clean = s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim()
   return clean.length > max ? clean.slice(0, max) + '…' : clean
 }
@@ -37,7 +36,6 @@ interface SubagentDef {
   task: string
 }
 
-// Active runs — keyed by orchestratorId
 const activeRuns = new Map<string, ReturnType<typeof spawn>>()
 
 export function runOrchestrator(
@@ -53,12 +51,15 @@ export function runOrchestrator(
     send<OrchestratorStatusEvent>('orchestrator:status', { orchestratorId, status, message })
   }
 
-  sendStatus('thinking', 'Analyzing task…')
+  const sendStream = (text: string): void => {
+    send<OrchestratorStreamEvent>('orchestrator:stream', { orchestratorId, text })
+  }
+
+  sendStatus('thinking', 'Starting Claude…')
 
   const prompt = PROMPT(payload.task, payload.markdown)
 
-  // Pass the prompt via stdin — avoids shell mangling of multi-line text
-  const proc = spawn('claude', ['-p', '--output-format', 'json'], {
+  const proc = spawn('claude', ['-p', '--output-format', 'stream-json'], {
     shell: true,
     env: { ...process.env },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -69,40 +70,80 @@ export function runOrchestrator(
 
   activeRuns.set(orchestratorId, proc)
 
-  let stdout = ''
+  let fullText = ''
   let stderr = ''
+  let lineBuffer = ''
 
-  proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+  const timeout = setTimeout(() => {
+    proc.kill()
+    sendStatus('error', 'Claude timed out after 2 minutes')
+    activeRuns.delete(orchestratorId)
+  }, 120_000)
+
+  proc.stdout.on('data', (chunk: Buffer) => {
+    lineBuffer += chunk.toString()
+
+    // stream-json outputs one JSON object per line
+    const lines = lineBuffer.split('\n')
+    lineBuffer = lines.pop() ?? '' // keep incomplete last line in buffer
+
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const event = JSON.parse(line.trim())
+
+        if (event.type === 'assistant' && event.subtype === 'text') {
+          fullText += event.content
+          sendStream(fullText)
+          sendStatus('thinking', 'Claude is responding…')
+        } else if (event.type === 'result') {
+          // Final result — use this for parsing
+          if (event.is_error) {
+            sendStatus('error', truncate(event.result ?? 'Unknown error'))
+            return
+          }
+          if (event.result) fullText = event.result
+        }
+      } catch {
+        // not valid JSON line, skip
+      }
+    }
+  })
+
   proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
 
+  proc.on('error', (err) => {
+    clearTimeout(timeout)
+    activeRuns.delete(orchestratorId)
+    sendStatus('error', `Failed to run claude: ${err.message}`)
+  })
+
   proc.on('close', (code) => {
+    clearTimeout(timeout)
     activeRuns.delete(orchestratorId)
 
+    // Process any remaining buffered line
+    if (lineBuffer.trim()) {
+      try {
+        const event = JSON.parse(lineBuffer.trim())
+        if (event.type === 'result' && event.result) fullText = event.result
+        if (event.is_error) {
+          sendStatus('error', truncate(event.result ?? 'Unknown error'))
+          return
+        }
+      } catch {}
+    }
+
     if (code !== 0) {
-      // Show stderr, or stdout (may contain auth/rate-limit messages), or a generic fallback
-      const errMsg = stderr.trim() || stdout.trim() || `claude exited with code ${code}`
+      const errMsg = stderr.trim() || fullText.trim() || `claude exited with code ${code}`
       sendStatus('error', truncate(errMsg))
       return
     }
 
-    // The CLI outputs a JSON envelope: { result: "..." }
-    let text = stdout.trim()
-    try {
-      const envelope = JSON.parse(text) as { result?: string; is_error?: boolean }
-      if (envelope.is_error) {
-        sendStatus('error', truncate(envelope.result ?? 'Unknown error'))
-        return
-      }
-      if (envelope.result) text = envelope.result
-    } catch {
-      // not an envelope, use raw text
-    }
-
-    // Extract JSON array from the text (Claude might wrap it anyway)
-    const match = text.match(/\[[\s\S]*\]/)
+    // Extract JSON array from the accumulated text
+    const match = fullText.match(/\[[\s\S]*\]/)
     if (!match) {
-      // Show what Claude actually said instead of a generic parse error
-      sendStatus('error', truncate(text) || 'No response from Claude')
+      sendStatus('error', truncate(fullText) || 'No response from Claude')
       return
     }
 
@@ -110,11 +151,10 @@ export function runOrchestrator(
     try {
       agents = JSON.parse(match[0]) as SubagentDef[]
     } catch {
-      sendStatus('error', truncate(text) || 'Invalid JSON in response')
+      sendStatus('error', truncate(fullText) || 'Invalid JSON in response')
       return
     }
 
-    // Spawn subagent nodes
     agents.forEach((agent, idx) => {
       const subagentX = payload.worldX + ORCHESTRATOR_W + 80
       const subagentY = payload.worldY + idx * (SUBAGENT_H + SUBAGENT_GAP)
@@ -130,11 +170,6 @@ export function runOrchestrator(
     })
 
     sendStatus('done', `Spawned ${agents.length} agent${agents.length !== 1 ? 's' : ''}`)
-  })
-
-  proc.on('error', (err) => {
-    activeRuns.delete(orchestratorId)
-    sendStatus('error', `Failed to run claude: ${err.message}`)
   })
 }
 

@@ -4,7 +4,7 @@
  */
 import React, { useEffect } from 'react'
 import { useNodeStore } from '../../renderer/src/stores/nodeStore'
-import type { SubagentSpawnedEvent, OrchestratorStatusEvent, NoteUpdateEvent } from './shared/types'
+import type { SubagentSpawnedEvent, OrchestratorStatusEvent, OrchestratorStreamEvent, NoteUpdateEvent } from './shared/types'
 
 export function OrchestratorMount(): React.ReactElement | null {
   useEffect(() => {
@@ -52,6 +52,15 @@ export function OrchestratorMount(): React.ReactElement | null {
       })
     })
 
+    const unsubStream = window.orchestrator.onStream((event: OrchestratorStreamEvent) => {
+      const store = useNodeStore.getState()
+      const node = store.nodes.get(event.orchestratorId)
+      if (!node) return
+      store.update(event.orchestratorId, {
+        props: { ...node.props, streamText: event.text },
+      })
+    })
+
     const unsubNotes = window.orchestrator.onNoteUpdate((event: NoteUpdateEvent) => {
       const store = useNodeStore.getState()
       // Find subagent node by its agentId prop
@@ -66,6 +75,7 @@ export function OrchestratorMount(): React.ReactElement | null {
     return () => {
       unsubNodes()
       unsubStatus()
+      unsubStream()
       unsubNotes()
     }
   }, [])
