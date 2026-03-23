@@ -77,6 +77,15 @@ export interface CanvaFlowPlugin {
   readonly shortcut?: string
 
   /**
+   * Marks a plugin as a terminal-backed AI agent node.
+   * Renderer flows can discover compatible agent nodes through this metadata
+   * instead of hardcoding specific plugin ids.
+   */
+  readonly agentTerminal?: {
+    readonly shell: string
+  }
+
+  /**
    * Register IPC handlers in the Electron main process.
    * Called once during app startup, before the window is shown.
    * All ipcMain.handle / ipcMain.on calls for this plugin go here.

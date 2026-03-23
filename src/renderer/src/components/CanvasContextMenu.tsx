@@ -1,6 +1,6 @@
 import React, { useRef } from 'react'
 import { Camera, screenToWorld } from '../stores/cameraStore'
-import { useNodeStore } from '../stores/nodeStore'
+import { type NodeType, useNodeStore } from '../stores/nodeStore'
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent,
   ContextMenuItem, ContextMenuSeparator
@@ -8,15 +8,26 @@ import {
 import { useCameraStore } from '../stores/cameraStore'
 import { fitAllNodes } from '../utils/canvasUtils'
 import { getActiveWorkspace } from '../stores/workspaceStore'
+import { getAgentTerminalPlugins } from '../../../plugins/agentTerminal'
 
 interface Props {
   camera: Camera
   children: React.ReactNode
 }
 
+function formatShortcut(shortcut?: string): string | null {
+  if (!shortcut) return null
+  return shortcut
+    .replaceAll('Meta', '⌘')
+    .replaceAll('Shift', '⇧')
+    .replaceAll('Alt', '⌥')
+    .replaceAll('+', '')
+}
+
 export function CanvasContextMenu({ children }: Props): React.ReactElement {
   const { add } = useNodeStore()
   const clickWorldPos = useRef({ x: 0, y: 0 })
+  const agentPlugins = getAgentTerminalPlugins()
 
   return (
     <ContextMenu>
@@ -49,20 +60,17 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
         <ContextMenuItem onClick={() => add('trello', clickWorldPos.current.x - 450, clickWorldPos.current.y - 350)}>
           New Trello
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
-          add('claude', clickWorldPos.current.x - 350, clickWorldPos.current.y - 240, { cwd })
-        }}>
-          <span style={{ flex: 1 }}>New Claude</span>
-          <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧C</span>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
-          add('codex', clickWorldPos.current.x - 350, clickWorldPos.current.y - 240, { cwd })
-        }}>
-          <span style={{ flex: 1 }}>New Codex</span>
-          <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧X</span>
-        </ContextMenuItem>
+        {agentPlugins.map((plugin) => (
+          <ContextMenuItem key={plugin.nodeType} onClick={() => {
+            const cwd = getActiveWorkspace()?.path || ''
+            add(plugin.nodeType as NodeType, clickWorldPos.current.x - 350, clickWorldPos.current.y - 240, { cwd })
+          }}>
+            <span style={{ flex: 1 }}>{`New ${plugin.defaultTitle}`}</span>
+            {formatShortcut(plugin.shortcut) && (
+              <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>{formatShortcut(plugin.shortcut)}</span>
+            )}
+          </ContextMenuItem>
+        ))}
         <ContextMenuItem onClick={() => {
           const rootPath = getActiveWorkspace()?.path || ''
           add('monaco', clickWorldPos.current.x - 500, clickWorldPos.current.y - 320, { rootPath })

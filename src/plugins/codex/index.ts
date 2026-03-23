@@ -1,13 +1,9 @@
-import { CodexNode } from './renderer/CodexNode'
-import type { CanvaFlowPlugin } from '../types'
+import { createAgentTerminalPlugin } from '../agentTerminalPlugin'
 
-export const codexPlugin: CanvaFlowPlugin = {
+export const codexPlugin = createAgentTerminalPlugin({
   id: 'codex',
   nodeType: 'codex',
-  defaultSize: { width: 700, height: 480 },
-  defaultTitle: 'Codex',
-  component: CodexNode,
-  keepAlive: true,
-  sidebarLabel: 'Codex',
+  title: 'Codex',
+  shell: 'codex',
   shortcut: 'Meta+Shift+X',
-}
+})

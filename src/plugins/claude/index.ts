@@ -1,13 +1,9 @@
-import { ClaudeNode } from './renderer/ClaudeNode'
-import type { CanvaFlowPlugin } from '../types'
+import { createAgentTerminalPlugin } from '../agentTerminalPlugin'
 
-export const claudePlugin: CanvaFlowPlugin = {
+export const claudePlugin = createAgentTerminalPlugin({
   id: 'claude',
   nodeType: 'claude',
-  defaultSize: { width: 700, height: 480 },
-  defaultTitle: 'Claude',
-  component: ClaudeNode,
-  keepAlive: true,
-  sidebarLabel: 'Claude',
+  title: 'Claude',
+  shell: 'claude',
   shortcut: 'Meta+Shift+C',
-}
+})

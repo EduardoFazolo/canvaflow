@@ -16,6 +16,7 @@ import {
 } from '../../../renderer/src/components/ui/context-menu'
 import { TrelloDropModal, TrelloDropPayload } from './TrelloDropModal'
 import type { TrelloCard } from '../main/handlers'
+import { getAgentTerminalDropLabel, isAgentTerminalNodeType } from '../../agentTerminal'
 
 declare global {
   namespace JSX {
@@ -310,7 +311,7 @@ const btnHover: React.CSSProperties = {
 
 interface DragDropTarget {
   nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude' | 'codex'
+  nodeType: string
   title: string
   left: number; top: number; width: number; height: number
 }
@@ -393,7 +394,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
 
     const { camera } = useCameraStore.getState()
     const candidates = Array.from(useNodeStore.getState().nodes.values())
-      .filter((c) => c.id !== node.id && (c.type === 'terminal' || c.type === 'browser' || c.type === 'claude' || c.type === 'codex'))
+      .filter((c) => c.id !== node.id && (c.type === 'terminal' || c.type === 'browser' || isAgentTerminalNodeType(c.type)))
       .map((c) => {
         const left = canvasRect.left + camera.x + c.x * camera.zoom
         const top = canvasRect.top + camera.y + c.y * camera.zoom
@@ -410,7 +411,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
     if (!hit) return null
     return {
       nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude' | 'codex',
+      nodeType: hit.candidate.type,
       title: hit.candidate.title,
       left: hit.left, top: hit.top, width: hit.width, height: hit.height,
     }
@@ -452,7 +453,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
           } catch {}
         }
 
-        if (target.nodeType === 'terminal' || target.nodeType === 'claude' || target.nodeType === 'codex') {
+        if (target.nodeType === 'terminal' || isAgentTerminalNodeType(target.nodeType)) {
           useNodeStore.getState().setFocusedNodeId(target.nodeId)
           window.terminal.write(target.nodeId, text)
           return
@@ -840,13 +841,10 @@ export function TrelloNode({ node }: Props): React.ReactElement {
           borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 600,
           letterSpacing: '0.01em', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
         }}>
-          {dropTarget.nodeType === 'claude'
-            ? 'Drop to send to Claude'
-            : dropTarget.nodeType === 'codex'
-              ? 'Drop to send to Codex'
-              : dropTarget.nodeType === 'terminal'
-                ? 'Drop to copy into terminal'
-                : 'Drop to copy into browser'}
+          {getAgentTerminalDropLabel(dropTarget.nodeType)
+            ?? (dropTarget.nodeType === 'terminal'
+              ? 'Drop to copy into terminal'
+              : 'Drop to copy into browser')}
         </div>
       </div>,
       document.body
