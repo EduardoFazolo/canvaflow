@@ -6,6 +6,13 @@ import type {
   OrchestratorStatusEvent,
 } from '../shared/types'
 
+/** Trim long error messages so they fit in the status UI */
+function truncate(s: string, max = 300): string {
+  // Strip ANSI escape codes
+  const clean = s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim()
+  return clean.length > max ? clean.slice(0, max) + '…' : clean
+}
+
 const ORCHESTRATOR_W = 520
 const SUBAGENT_H = 180
 const SUBAGENT_GAP = 50
@@ -72,8 +79,9 @@ export function runOrchestrator(
     activeRuns.delete(orchestratorId)
 
     if (code !== 0) {
-      const errMsg = stderr.trim() || `claude exited with code ${code}`
-      sendStatus('error', errMsg)
+      // Show stderr, or stdout (may contain auth/rate-limit messages), or a generic fallback
+      const errMsg = stderr.trim() || stdout.trim() || `claude exited with code ${code}`
+      sendStatus('error', truncate(errMsg))
       return
     }
 
@@ -82,7 +90,7 @@ export function runOrchestrator(
     try {
       const envelope = JSON.parse(text) as { result?: string; is_error?: boolean }
       if (envelope.is_error) {
-        sendStatus('error', envelope.result ?? 'Unknown error')
+        sendStatus('error', truncate(envelope.result ?? 'Unknown error'))
         return
       }
       if (envelope.result) text = envelope.result
@@ -93,7 +101,8 @@ export function runOrchestrator(
     // Extract JSON array from the text (Claude might wrap it anyway)
     const match = text.match(/\[[\s\S]*\]/)
     if (!match) {
-      sendStatus('error', 'Could not parse agent list from response')
+      // Show what Claude actually said instead of a generic parse error
+      sendStatus('error', truncate(text) || 'No response from Claude')
       return
     }
 
@@ -101,7 +110,7 @@ export function runOrchestrator(
     try {
       agents = JSON.parse(match[0]) as SubagentDef[]
     } catch {
-      sendStatus('error', 'Invalid JSON in response')
+      sendStatus('error', truncate(text) || 'Invalid JSON in response')
       return
     }
 
