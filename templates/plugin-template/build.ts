@@ -5,6 +5,18 @@
  * Produces:
  *   dist/renderer.js  — CommonJS bundle for the renderer (React component)
  *   dist/main.js      — CommonJS bundle for the main process (IPC handlers)
+ *
+ * Dependencies:
+ *   All npm packages your plugin uses are bundled into the output files.
+ *   Just `bun add <package>` and import it — esbuild includes it automatically.
+ *
+ *   The only externals (provided by the host, not bundled) are:
+ *     Renderer: react, react-dom, zustand
+ *     Main:     electron
+ *
+ *   Native Node modules (better-sqlite3, sharp, etc.) cannot be used in the
+ *   renderer bundle. If you need native functionality, put it in src/main.ts
+ *   and call it from the renderer via window.pluginIpc.invoke().
  */
 
 import { build } from 'esbuild'

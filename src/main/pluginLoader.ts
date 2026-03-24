@@ -1,8 +1,14 @@
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { createRequire } from 'module'
 import type { IpcMainLike, PluginManifest, LoadedPluginInfo } from '../plugins/types'
 import { createScopedIpc } from './pluginIpcRouter'
+
+// Use Node's createRequire to get a real require() that survives Vite/Rollup bundling.
+// The bundler transforms bare `require()` calls, but createRequire produces a function
+// at runtime that works with absolute paths outside the asar archive.
+const nativeRequire = createRequire(__filename)
 
 const PLUGINS_DIR = join(homedir(), '.canvaflow', 'plugins')
 
@@ -114,8 +120,7 @@ export async function loadAllPlugins(ipcMain: IpcMainLike): Promise<Map<string, 
       if (existsSync(mainBundlePath)) {
         try {
           const scopedIpc = createScopedIpc(manifest.id, ipcMain)
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const mainModule = require(mainBundlePath)
+          const mainModule = nativeRequire(mainBundlePath)
           const registerFn = mainModule.registerMainHandlers ?? mainModule.default?.registerMainHandlers
           if (typeof registerFn === 'function') {
             registerFn(scopedIpc)
