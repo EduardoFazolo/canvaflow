@@ -17,6 +17,38 @@ import type React from 'react'
 import type { NodeData } from '../renderer/src/stores/nodeStore'
 
 // ---------------------------------------------------------------------------
+// Node lifecycle
+// ---------------------------------------------------------------------------
+
+export type NodeHealthStatus = 'healthy' | 'degraded' | 'dead'
+
+/**
+ * Standardized lifecycle controller for any node type (built-in or plugin).
+ * Implementations are optional — each node type opts into the hooks it supports.
+ */
+export interface NodeLifecycleController {
+  /** Called when the node enters the viewport or becomes active. */
+  resume?(): void
+  /** Called when the node leaves the viewport or becomes inactive. */
+  suspend?(): void
+  /** Attempt crash recovery. Returns true if the node recovered. */
+  retry?(): Promise<boolean>
+  /** Periodic health probe. */
+  healthCheck?(): NodeHealthStatus
+}
+
+/**
+ * Optional lifecycle hooks a plugin can declare.
+ * The canvas layer calls these automatically based on viewport visibility.
+ */
+export interface PluginLifecycle {
+  onResume?(nodeId: string): void
+  onSuspend?(nodeId: string): void
+  onRetry?(nodeId: string): Promise<boolean>
+  onHealthCheck?(nodeId: string): NodeHealthStatus
+}
+
+// ---------------------------------------------------------------------------
 // IPC interface (avoids importing Electron in renderer bundles)
 // ---------------------------------------------------------------------------
 
@@ -89,6 +121,12 @@ export interface CanvaFlowPlugin {
    * Example: path.join(__dirname, '../preload/notionWebview.js')
    */
   readonly preloadScripts?: readonly string[]
+
+  /**
+   * Optional lifecycle hooks for viewport-aware suspend/resume and crash recovery.
+   * The canvas layer calls these automatically based on node visibility.
+   */
+  readonly lifecycle?: PluginLifecycle
 }
 
 // ---------------------------------------------------------------------------
