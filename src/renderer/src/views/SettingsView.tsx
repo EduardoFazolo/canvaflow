@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { plugins } from '../../../plugins'
+import { PluginManager } from '../components/PluginManager'
 
 export function SettingsView(): React.ReactElement {
   const { settings, loaded, load, update } = useSettingsStore()
@@ -92,6 +93,10 @@ export function SettingsView(): React.ReactElement {
             </Section>
           </>
         )}
+
+        <Section label="Plugins">
+              <PluginManager />
+            </Section>
 
         <McpSection />
 

@@ -9,6 +9,7 @@ import { FilesNode } from './FilesNode'
 import { NoteNode } from './NoteNode'
 import { pluginRegistry } from '../../../plugins/types'
 import { resumeNode, suspendNode } from '../hooks/useNodeLifecycle'
+import { PluginErrorBoundary } from './PluginErrorBoundary'
 
 function NodeRenderer({ node }: { node: NodeData }): React.ReactElement | null {
   if (node.type === 'terminal') return <TerminalNode key={node.id} node={node} />
@@ -17,7 +18,17 @@ function NodeRenderer({ node }: { node: NodeData }): React.ReactElement | null {
   if (node.type === 'files') return <FilesNode key={node.id} node={node} />
   if (node.type === 'note') return <NoteNode key={node.id} node={node} />
   const plugin = pluginRegistry.get(node.type)
-  if (plugin) return <plugin.component key={node.id} node={node} />
+  if (plugin) {
+    // Wrap external plugins in an error boundary for isolation
+    if (plugin.external) {
+      return (
+        <PluginErrorBoundary key={node.id} pluginId={plugin.id} nodeId={node.id}>
+          <plugin.component node={node} />
+        </PluginErrorBoundary>
+      )
+    }
+    return <plugin.component key={node.id} node={node} />
+  }
   return null
 }
 

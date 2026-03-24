@@ -2,8 +2,13 @@ import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import { logAgentDebug } from '../../../modules/servers/agentic_signals/shared/debug'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
+import { pluginRegistry } from '../../../plugins/types'
 
-export type NodeType = 'terminal' | 'browser' | 'browserv2' | 'note' | 'files' | 'notion' | 'trello' | 'claude' | 'monaco' | 'orchestrator' | 'subagent' | 'windowpicker'
+/** Built-in node types. External plugins extend this at runtime via string. */
+export type BuiltInNodeType = 'terminal' | 'browser' | 'browserv2' | 'note' | 'files' | 'notion' | 'trello' | 'claude' | 'monaco' | 'orchestrator' | 'subagent' | 'windowpicker'
+
+/** NodeType is extensible — external plugins register arbitrary string types. */
+export type NodeType = BuiltInNodeType | (string & {})
 
 export interface NodeData {
   id: string
@@ -203,11 +208,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   add: (type, x, y, props = {}) => {
     const id = nanoid()
     const zIndex = get().getMaxZIndex() + 1
+    const plugin = pluginRegistry.get(type)
+    const size = DEFAULT_SIZES[type] ?? plugin?.defaultSize ?? { width: 600, height: 400 }
+    const title = DEFAULT_TITLES[type] ?? plugin?.defaultTitle ?? type
     const node: NodeData = {
       id, type, x, y,
-      ...DEFAULT_SIZES[type],
+      ...size,
       zIndex,
-      title: DEFAULT_TITLES[type],
+      title,
       minimized: false,
       contentScale: 1,
       props,

@@ -5,6 +5,7 @@ import { fitAllNodes } from '../utils/canvasUtils'
 import { notifyCanvasInteractionEnd, notifyCanvasInteractionStart } from '../utils/canvasInteraction'
 import { getActiveWorkspace } from '../stores/workspaceStore'
 import { zoomFitNode } from '../utils/zoomFocus'
+import { pluginRegistry } from '../../../plugins/types'
 
 interface Options {
   onSearch: () => void
@@ -77,6 +78,20 @@ export function useKeyboardShortcuts({ onSearch, onSettings }: Options): void {
           break
         case 'settings':
           onSettings()
+          break
+        default:
+          // Handle dynamic plugin shortcuts: 'newPlugin:<pluginId>'
+          if (name.startsWith('newPlugin:')) {
+            const pluginId = name.slice('newPlugin:'.length)
+            const plugin = pluginRegistry.getAll().find((p) => p.id === pluginId)
+            if (plugin) {
+              addAndFocus(
+                plugin.nodeType as NodeType,
+                plugin.defaultSize.width / 2,
+                plugin.defaultSize.height / 2,
+              )
+            }
+          }
           break
       }
     })

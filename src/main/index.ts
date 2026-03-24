@@ -15,6 +15,7 @@ import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
 import { registerOrchestratorHandlers } from '../plugins/orchestrator/main/handlers'
 import { registerWindowPickerHandlers } from '../plugins/windowpicker/main/handlers'
+import { loadAllPlugins, setupPluginHandlers, getLoadedPlugins } from './pluginLoader'
 
 // Suppress noisy Chromium GPU/Skia internal errors that are benign in webview usage
 app.commandLine.appendSwitch('log-level', '3')
@@ -53,24 +54,57 @@ function createWindow(): void {
     void direction
   })
 
+  // Build shortcut map: normalized key combo → shortcut name
+  const shortcutMap = new Map<string, string>([
+    ['meta+t', 'newTerminal'],
+    ['meta+b', 'newBrowser'],
+    ['meta+f', 'newFiles'],
+    ['meta+0', 'fitAll'],
+    ['meta+k', 'search'],
+    ['meta+=', 'zoomIn'],
+    ['meta++', 'zoomIn'],
+    ['meta+-', 'zoomOut'],
+    ['meta+,', 'settings'],
+    ['meta+shift+c', 'newClaude'],
+    ['meta+shift+e', 'newEditor'],
+    ['meta+shift+l', 'newLovable'],
+    ['meta+shift+w', 'newWindowPicker'],
+  ])
+  // Special: devtools toggle handled separately
+
+  // Register dynamic shortcuts from external plugins
+  for (const [, info] of getLoadedPlugins()) {
+    if (info.enabled && info.manifest.shortcut) {
+      const normalized = info.manifest.shortcut.toLowerCase().replace(/\s+/g, '')
+      shortcutMap.set(normalized, `newPlugin:${info.manifest.id}`)
+    }
+  }
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
-    // Use only meta (Cmd on macOS) so Ctrl+T/B/F/K/etc. pass through to terminals (readline shortcuts)
     const mod = input.meta
-    if (mod && input.key === 't') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newTerminal') }
-    else if (mod && input.key === 'b') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newBrowser') }
-    else if (mod && input.key === 'f') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newFiles') }
-    else if (mod && input.key === '0') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'fitAll') }
-    else if (mod && input.key === 'k') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'search') }
-    else if (mod && (input.key === '=' || input.key === '+')) { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'zoomIn') }
-    else if (mod && input.key === '-') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'zoomOut') }
-    else if (mod && input.key === ',') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'settings') }
-    else if (mod && input.shift && input.key === 'C') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newClaude') }
-    else if (mod && input.shift && input.key === 'E') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newEditor') }
-    else if (mod && input.shift && input.key === 'L') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newLovable') }
-    else if (mod && input.shift && input.key === 'W') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newWindowPicker') }
-    else if (mod && input.alt && input.key === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
 
+    // DevTools toggle (special case: meta+alt+i)
+    if (mod && input.alt && input.key === 'i') {
+      event.preventDefault()
+      mainWindow!.webContents.toggleDevTools()
+      return
+    }
+
+    if (!mod) return
+
+    // Build the key combo string for lookup
+    const parts: string[] = ['meta']
+    if (input.shift) parts.push('shift')
+    if (input.alt) parts.push('alt')
+    parts.push(input.key.toLowerCase())
+    const combo = parts.join('+')
+
+    const shortcutName = shortcutMap.get(combo)
+    if (shortcutName) {
+      event.preventDefault()
+      mainWindow!.webContents.send('shortcut', shortcutName)
+    }
   })
 
   // Kill all PTYs before the webContents is destroyed so onData never fires into a dead window
@@ -147,6 +181,10 @@ app.whenReady().then(async () => {
   registerLovableHandlers(ipcMain)
   registerOrchestratorHandlers(ipcMain, () => mainWindow?.webContents ?? null)
   registerWindowPickerHandlers(ipcMain)
+
+  // v3 external plugin system
+  setupPluginHandlers(ipcMain)
+  await loadAllPlugins(ipcMain)
 
   // Init tmux and clean up orphan sessions from deleted nodes
   await tmuxManager.init()

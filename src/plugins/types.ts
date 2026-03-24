@@ -4,10 +4,14 @@
  * A plugin is a self-contained module that adds a new node type to the canvas.
  * It spans both the renderer (React component) and the main process (IPC handlers).
  *
- * Usage:
+ * Built-in plugins (v2):
  *   1. Create your plugin manifest implementing CanvaFlowPlugin.
  *   2. Register it in the renderer entry via pluginRegistry.register(myPlugin).
  *   3. Call myPlugin.registerMainHandlers?.(ipcMain) in the main process entry.
+ *
+ * External plugins (v3):
+ *   Distributed as pre-bundled JS in ~/.canvaflow/plugins/<id>/ with a manifest.json.
+ *   Loaded at runtime — see PluginManifest and the plugin loaders in main/renderer.
  *
  * The node type string you declare becomes the key used in NodeData.type,
  * the SQLite canvas_nodes.type column, and the NodeLayer dispatch lookup.
@@ -63,6 +67,55 @@ export interface IpcMainLike {
   ): void
   on(channel: string, listener: (event: unknown, ...args: any[]) => void): void
   removeHandler(channel: string): void
+}
+
+// ---------------------------------------------------------------------------
+// External plugin manifest (v3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for manifest.json in external plugin directories.
+ * This is what plugin authors write — the host reads and validates it.
+ */
+export interface PluginManifest {
+  /** Unique plugin identifier, URL-safe, no spaces. */
+  id: string
+  /** Human-readable display name. */
+  name: string
+  /** Semver version string. */
+  version: string
+  /** Plugin author name. */
+  author?: string
+  /** Short description of what the plugin does. */
+  description?: string
+  /** The NodeData.type value this plugin registers. */
+  nodeType: string
+  /** Default node dimensions. */
+  defaultSize: { width: number; height: number }
+  /** Default title on creation. */
+  defaultTitle: string
+  /** Keep node mounted when off-screen. */
+  keepAlive?: boolean
+  /** Label in the sidebar / command palette. */
+  sidebarLabel?: string
+  /** Keyboard shortcut (e.g. 'Meta+Shift+M'). */
+  shortcut?: string
+  /** Relative path to main process bundle (CommonJS). */
+  main?: string
+  /** Relative path to renderer bundle (CommonJS). */
+  renderer: string
+  /** Relative paths to webview preload bundles. */
+  preloadScripts?: string[]
+}
+
+/**
+ * Tracks the state of an external plugin after loading.
+ */
+export interface LoadedPluginInfo {
+  manifest: PluginManifest
+  path: string
+  enabled: boolean
+  error?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -127,14 +180,38 @@ export interface CanvaFlowPlugin {
    * The canvas layer calls these automatically based on node visibility.
    */
   readonly lifecycle?: PluginLifecycle
+
+  // --- v3 external plugin metadata (optional for built-in plugins) ----------
+
+  /** Plugin version. */
+  readonly version?: string
+  /** Plugin author. */
+  readonly author?: string
+  /** Short description. */
+  readonly description?: string
+  /** Whether this plugin is currently enabled (external plugins only). */
+  enabled?: boolean
+  /** Absolute path to the plugin folder (external plugins only). */
+  readonly pluginPath?: string
+  /** Whether this is an external (runtime-loaded) plugin. */
+  readonly external?: boolean
 }
 
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
+type RegistryListener = (event: 'register' | 'unregister', plugin: CanvaFlowPlugin) => void
+
 export class PluginRegistry {
   private readonly _plugins = new Map<string, CanvaFlowPlugin>()
+  private readonly _listeners = new Set<RegistryListener>()
+  private _version = 0
+
+  /** Current version counter — increments on every register/unregister. */
+  get version(): number {
+    return this._version
+  }
 
   /**
    * Register a plugin. Throws if the nodeType is already registered
@@ -147,6 +224,18 @@ export class PluginRegistry {
       )
     }
     this._plugins.set(plugin.nodeType, plugin)
+    this._version++
+    for (const cb of this._listeners) cb('register', plugin)
+  }
+
+  /** Unregister a plugin by nodeType. Returns true if it was removed. */
+  unregister(nodeType: string): boolean {
+    const plugin = this._plugins.get(nodeType)
+    if (!plugin) return false
+    this._plugins.delete(nodeType)
+    this._version++
+    for (const cb of this._listeners) cb('unregister', plugin)
+    return true
   }
 
   /** Look up a plugin by its nodeType string. Returns undefined if not found. */
@@ -159,9 +248,22 @@ export class PluginRegistry {
     return Array.from(this._plugins.values())
   }
 
+  /** Only external (runtime-loaded) plugins. */
+  getExternal(): CanvaFlowPlugin[] {
+    return this.getAll().filter((p) => p.external)
+  }
+
   /** Check whether a nodeType has been registered. */
   has(nodeType: string): boolean {
     return this._plugins.has(nodeType)
+  }
+
+  /**
+   * Subscribe to registry changes. Returns an unsubscribe function.
+   */
+  onChanged(listener: RegistryListener): () => void {
+    this._listeners.add(listener)
+    return () => this._listeners.delete(listener)
   }
 
   /**

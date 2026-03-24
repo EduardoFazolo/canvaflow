@@ -246,6 +246,29 @@ declare global {
       remoteUrl: (rootPath: string) => Promise<string | null>
     }
 
+    pluginIpc: {
+      invoke: (pluginId: string, channel: string, ...args: unknown[]) => Promise<unknown>
+      send: (pluginId: string, channel: string, ...args: unknown[]) => void
+      on: (pluginId: string, channel: string, callback: (...args: unknown[]) => void) => () => void
+    }
+
+    plugins: {
+      getAll: () => Promise<Array<{
+        id: string
+        name: string
+        version: string
+        author?: string
+        description?: string
+        nodeType: string
+        enabled: boolean
+        error?: string
+        path: string
+      }>>
+      setEnabled: (id: string, enabled: boolean) => Promise<void>
+      getRendererBundle: (id: string) => Promise<string | null>
+      getDir: () => Promise<string>
+    }
+
     fs: {
       readDir: (dirPath: string) => Promise<Array<{
         name: string

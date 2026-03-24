@@ -301,6 +301,37 @@ contextBridge.exposeInMainWorld('windowpicker', {
     ipcRenderer.invoke('windowpicker:focusWindow', pid, owner),
 })
 
+// ---------------------------------------------------------------------------
+// Generic plugin IPC bridge (v3 external plugins)
+// ---------------------------------------------------------------------------
+
+contextBridge.exposeInMainWorld('pluginIpc', {
+  invoke: (pluginId: string, channel: string, ...args: unknown[]): Promise<unknown> =>
+    ipcRenderer.invoke(`plugin:${pluginId}:${channel}`, ...args),
+  send: (pluginId: string, channel: string, ...args: unknown[]): void =>
+    ipcRenderer.send(`plugin:${pluginId}:${channel}`, ...args),
+  on: (pluginId: string, channel: string, callback: (...args: unknown[]) => void): (() => void) => {
+    const listener = (_event: unknown, ...args: unknown[]) => callback(...args)
+    ipcRenderer.on(`plugin:${pluginId}:${channel}`, listener)
+    return () => ipcRenderer.removeListener(`plugin:${pluginId}:${channel}`, listener)
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Plugin management (v3)
+// ---------------------------------------------------------------------------
+
+contextBridge.exposeInMainWorld('plugins', {
+  getAll: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('plugins:getAll'),
+  setEnabled: (id: string, enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('plugins:setEnabled', id, enabled),
+  getRendererBundle: (id: string): Promise<string | null> =>
+    ipcRenderer.invoke('plugins:getRendererBundle', id),
+  getDir: (): Promise<string> =>
+    ipcRenderer.invoke('plugins:getDir'),
+})
+
 contextBridge.exposeInMainWorld('notion', {
   fetchPage: (partition: string, pageId: string): Promise<NotionPageChunk> =>
     ipcRenderer.invoke('notion:fetchPage', partition, pageId),

@@ -1,0 +1,12 @@
+{
+  "id": "{{PLUGIN_ID}}",
+  "name": "{{PLUGIN_NAME}}",
+  "version": "0.1.0",
+  "author": "",
+  "description": "A CanvaFlow plugin",
+  "nodeType": "{{PLUGIN_ID}}",
+  "defaultSize": { "width": 600, "height": 400 },
+  "defaultTitle": "{{PLUGIN_NAME}}",
+  "sidebarLabel": "{{PLUGIN_NAME}}",
+  "renderer": "dist/renderer.js"
+}

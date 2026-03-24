@@ -11,8 +11,9 @@ import { trelloPlugin } from '../../plugins/trello'
 import { lovablePlugin } from '../../plugins/lovable'
 import { orchestratorPlugin, subagentPlugin } from '../../plugins/orchestrator'
 import { windowPickerPlugin } from '../../plugins/windowpicker'
+import { loadExternalPlugins } from './pluginLoader'
 
-// Register plugins before the app renders
+// Register built-in plugins before the app renders
 pluginRegistry.register(notionPlugin)
 pluginRegistry.register(claudePlugin)
 pluginRegistry.register(monacoPlugin)
@@ -52,8 +53,11 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>
-)
+// Load external plugins, then render
+loadExternalPlugins().then(() => {
+  ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  )
+})
