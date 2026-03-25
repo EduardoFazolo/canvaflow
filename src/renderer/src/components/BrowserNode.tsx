@@ -741,7 +741,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
           <div
             ref={webviewAreaRef}
             style={{ width: '100%', height: webviewHeight, position: 'relative', overflow: 'hidden', background: isActivated ? '#ffffff' : '#0d0d0d' }}
-            onPointerDown={(e) => { useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+            onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
             onDragOver={(e) => {
               if (e.dataTransfer.types.includes('application/canvaflow-session')) {
                 e.preventDefault()

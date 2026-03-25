@@ -543,10 +543,11 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   }, [showLiveView])
 
   // ---------------------------------------------------------------------------
-  // Lifecycle: create / destroy WebContentsView
+  // Lifecycle: create / destroy WebContentsView (gated on activation queue)
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    if (!isActivated) return
     const { left: vpLeft, top: vpTop } = useCanvasViewportStore.getState()
     const bounds = getBounds() ?? { x: vpLeft, y: vpTop, width: Math.round(node.width), height: Math.round(node.height - TITLE_H - TOOLBAR_H) }
     window.browser.create(node.id, partition, webviewSrcRef.current, bounds).then(() => {
@@ -556,7 +557,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
       window.browser.destroy(node.id)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally mount/unmount only
+  }, [isActivated]) // create when activated, destroy on unmount
 
   useEffect(() => {
     return () => {
@@ -747,7 +748,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
         const url = (data as any).url as string
         if (url) add('browserv2', node.x + 40, node.y + 40, { url })
       } else if (eventName === 'focus') {
-        useActivationStore.getState().activate(node.id)
+        useActivationStore.getState().activateNow(node.id)
         setFocusedNodeId(node.id)
       }
     })
@@ -1074,7 +1075,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               background: isFocused ? '#ffffff' : '#0d0d0d',
             }}
             onPointerDown={(e) => {
-              useActivationStore.getState().activate(node.id)
+              useActivationStore.getState().activateNow(node.id)
               setFocusedNodeId(node.id)
               e.stopPropagation()
             }}

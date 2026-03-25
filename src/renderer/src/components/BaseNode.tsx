@@ -118,7 +118,7 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
     e.stopPropagation()
     bringToFront(node.id)
     setFocusedNodeId(node.id)
-    useActivationStore.getState().activate(node.id)
+    useActivationStore.getState().activateNow(node.id)
     trackFocus(node.id)
     isDragging.current = true
     dragStart.current = { px: e.clientX, py: e.clientY, nx: node.x, ny: node.y }
@@ -216,7 +216,7 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
         overflow: 'hidden',
         transition: 'box-shadow 0.15s',
       }}
-      onPointerDown={(e) => { bringToFront(node.id); setFocusedNodeId(node.id); useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+      onPointerDown={(e) => { bringToFront(node.id); setFocusedNodeId(node.id); useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
       onContextMenu={onContextMenu}
     >
       {/* Title bar */}

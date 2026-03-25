@@ -8,11 +8,34 @@ import { useActivationStore } from '../stores/activationStore'
 
 // Activate nodes after React has had a chance to mount the components.
 // Two rAF frames ensures the DOM commit + paint cycle completes first.
-function activateNodesAfterMount(nodeIds: string[]): void {
+// Nodes are queued and staggered — visible nodes activate first, off-screen nodes later.
+function activateNodesAfterMount(nodeIds: string[], nodes?: Map<string, NodeData>): void {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const { activate } = useActivationStore.getState()
-      for (const id of nodeIds) activate(id)
+      // Determine which nodes are currently visible in the viewport
+      const camera = useCameraStore.getState().camera
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const visibleIds: string[] = []
+
+      if (nodes) {
+        const left = -camera.x / camera.zoom
+        const top = -camera.y / camera.zoom
+        const right = (vw - camera.x) / camera.zoom
+        const bottom = (vh - camera.y) / camera.zoom
+
+        for (const id of nodeIds) {
+          const node = nodes.get(id)
+          if (node &&
+            node.x < right && node.x + node.width > left &&
+            node.y < bottom && node.y + node.height > top
+          ) {
+            visibleIds.push(id)
+          }
+        }
+      }
+
+      useActivationStore.getState().queueActivation(nodeIds, visibleIds)
     })
   })
 }
@@ -142,7 +165,7 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
 
     if (existing) {
       useNodeStore.getState().loadWorkspace(workspaceId, existing)
-      activateNodesAfterMount([...existing.keys()])
+      activateNodesAfterMount([...existing.keys()], existing)
     } else {
       // First visit — load from DB
       const nodeRows = await api.canvas.getNodes(workspaceId)
@@ -175,7 +198,7 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
       } catch {}
 
       useNodeStore.getState().loadWorkspace(workspaceId, nodes)
-      activateNodesAfterMount([...nodes.keys()])
+      activateNodesAfterMount([...nodes.keys()], nodes)
 
       // Update sidebar summaries
       useWorkspaceStore.getState().setNodeSummaries(

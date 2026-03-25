@@ -415,7 +415,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
           <div
             ref={containerRef}
             style={{ width: '100%', height: node.height - 32, padding: isActivated ? '6px 8px' : 0, boxSizing: 'border-box', position: 'relative' }}
-            onPointerDown={(e) => { useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+            onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
           >
             {isActivated ? (
               <>
