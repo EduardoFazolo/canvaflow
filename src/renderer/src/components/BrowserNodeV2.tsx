@@ -4,7 +4,7 @@ import { BaseNode } from './BaseNode'
 import { useCameraStore } from '../stores/cameraStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useActivationStore } from '../stores/activationStore'
-import { NodePlaceholder } from './NodePlaceholder'
+import { NodePlaceholder, ActivationFade } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
 import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
 import { useCanvasViewportStore } from '../stores/canvasViewportStore'
@@ -24,6 +24,46 @@ import {
 
 const TITLE_H = 32
 const TOOLBAR_H = 36
+
+/** Placeholder that fades out when the browser view becomes active underneath */
+function BrowserPlaceholderFade({ isActivated }: { isActivated: boolean }): React.ReactElement | null {
+  const [visible, setVisible] = React.useState(true)
+  const [opacity, setOpacity] = React.useState(1)
+
+  React.useEffect(() => {
+    if (isActivated) {
+      // Small delay to let the native view appear, then fade the placeholder out
+      const fadeTimer = setTimeout(() => setOpacity(0), 200)
+      const removeTimer = setTimeout(() => setVisible(false), 700)
+      return () => { clearTimeout(fadeTimer); clearTimeout(removeTimer) }
+    }
+  }, [isActivated])
+
+  if (!visible) return null
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 2,
+        background: '#0d0d0d',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        color: 'rgba(255,255,255,0.12)',
+        userSelect: 'none',
+        pointerEvents: isActivated ? 'none' : 'auto',
+        opacity,
+        transition: 'opacity 0.4s ease-out',
+      }}
+    >
+      <NodePlaceholder icon="browser" />
+    </div>
+  )
+}
 
 function getPartition(sessionId: string | undefined, nodeId: string): string {
   if (!sessionId || sessionId === 'default') return 'persist:canvaflow-ws-default'
@@ -1109,7 +1149,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'none', pointerEvents: 'none' }}
               alt=""
             />
-            {!isActivated && !hasScreenshot && <NodePlaceholder icon="browser" />}
+            {!hasScreenshot && <BrowserPlaceholderFade isActivated={isActivated} />}
           </div>
         </BaseNode>
       </ContextMenuTrigger>

@@ -11,7 +11,7 @@ import { registerTerminal, unregisterTerminal } from '../terminalRegistry'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivityStore } from '../stores/activityStore'
 import { useActivationStore } from '../stores/activationStore'
-import { NodePlaceholder } from './NodePlaceholder'
+import { ActivationFade } from './NodePlaceholder'
 import { normalizeClientPointForElement } from '../utils/terminalMouse'
 import { detectAgentStatusFromTerminalBuffer, detectAgentStatusFromTitle, sanitizeTerminalOutput } from '../../../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../../../modules/servers/agentic_signals/shared/debug'
@@ -417,24 +417,20 @@ export function TerminalNode({ node }: Props): React.ReactElement {
             style={{ width: '100%', height: node.height - 32, padding: isActivated ? '6px 8px' : 0, boxSizing: 'border-box', position: 'relative' }}
             onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
           >
-            {isActivated ? (
-              <>
-                {/* isolation: isolate contains xterm's internal z-indices so our overlay can sit above them */}
-                <div ref={termRef} style={{ width: '100%', height: '100%', isolation: 'isolate' }} />
-                {focusedNodeId !== node.id && (
-                  <div
-                    style={{ position: 'absolute', inset: 0, zIndex: 9999, cursor: 'text' }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation()
-                      setFocusedNodeId(node.id)
-                      setTimeout(() => xtermRef.current?.focus(), 0)
-                    }}
-                  />
-                )}
-              </>
-            ) : (
-              <NodePlaceholder icon="terminal" />
-            )}
+            <ActivationFade isActivated={isActivated} icon="terminal">
+              {/* isolation: isolate contains xterm's internal z-indices so our overlay can sit above them */}
+              <div ref={termRef} style={{ width: '100%', height: '100%', isolation: 'isolate' }} />
+              {focusedNodeId !== node.id && (
+                <div
+                  style={{ position: 'absolute', inset: 0, zIndex: 9999, cursor: 'text' }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    setFocusedNodeId(node.id)
+                    setTimeout(() => xtermRef.current?.focus(), 0)
+                  }}
+                />
+              )}
+            </ActivationFade>
           </div>
         </BaseNode>
       </ContextMenuTrigger>
