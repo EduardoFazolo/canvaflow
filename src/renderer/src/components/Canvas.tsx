@@ -85,10 +85,15 @@ export function Canvas(): React.ReactElement {
     return () => document.removeEventListener('pointerdown', onPointerDown, { capture: true } as any)
   }, [])
 
-  // Attach wheel as non-passive so preventDefault works
+  // Attach wheel as non-passive so preventDefault works.
+  // Track zoom gesture state so releasing Cmd mid-scroll doesn't suddenly pan.
   useEffect(() => {
     const el = rootRef.current
     if (!el) return
+
+    let wasZooming = false
+    let gestureEndTimer: ReturnType<typeof setTimeout> | null = null
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       startCanvasInteraction()
@@ -97,10 +102,16 @@ export function Canvas(): React.ReactElement {
       const localX = e.clientX - rect.left
       const localY = e.clientY - rect.top
       const style = useSettingsStore.getState().settings.navStyle
+
+      if (gestureEndTimer) clearTimeout(gestureEndTimer)
+      gestureEndTimer = setTimeout(() => { wasZooming = false }, 60)
+
       if (style === 'trackpad') {
         zoomAt(localX, localY, e.deltaY)
       } else {
-        if (e.ctrlKey || e.metaKey) {
+        if (e.ctrlKey || e.metaKey) wasZooming = true
+
+        if (wasZooming) {
           zoomAt(localX, localY, e.deltaY)
         } else {
           pan(-e.deltaX, -e.deltaY)
@@ -109,7 +120,10 @@ export function Canvas(): React.ReactElement {
       scheduleCanvasInteractionEnd()
     }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      if (gestureEndTimer) clearTimeout(gestureEndTimer)
+    }
   }, [pan, scheduleCanvasInteractionEnd, startCanvasInteraction, zoomAt])
 
   const startPan = useCallback((e: React.PointerEvent) => {
