@@ -10,6 +10,7 @@ import { monacoPlugin } from '../../plugins/monaco'
 import { trelloPlugin } from '../../plugins/trello'
 import { lovablePlugin } from '../../plugins/lovable'
 import { orchestratorPlugin, subagentPlugin } from '../../plugins/orchestrator'
+import { orchestratorV2Plugin, repoAgentPlugin } from '../../plugins/orchestrator-v2'
 import { windowPickerPlugin } from '../../plugins/windowpicker'
 
 // Register plugins before the app renders
@@ -20,6 +21,8 @@ pluginRegistry.register(trelloPlugin)
 pluginRegistry.register(lovablePlugin)
 pluginRegistry.register(orchestratorPlugin)
 pluginRegistry.register(subagentPlugin)
+pluginRegistry.register(orchestratorV2Plugin)
+pluginRegistry.register(repoAgentPlugin)
 pluginRegistry.register(windowPickerPlugin)
 
 class ErrorBoundary extends React.Component<

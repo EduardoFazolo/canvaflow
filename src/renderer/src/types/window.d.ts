@@ -5,6 +5,15 @@ import type {
   OrchestratorStatusEvent,
   NoteUpdateEvent,
 } from '../../../plugins/orchestrator/shared/types'
+import type {
+  OrcV2StartPayload,
+  RepoAgentSpawnedEvent,
+  OrcV2StatusEvent,
+  OrcV2NoteEvent,
+  AgentCommitEvent,
+  ConflictDetectedEvent,
+  MergeProgressEvent,
+} from '../../../plugins/orchestrator-v2/shared/types'
 
 // Global window API types exposed via contextBridge
 
@@ -126,6 +135,20 @@ declare global {
       createSessionDir: () => Promise<string>
       checkMcpGlobal: () => Promise<boolean>
       installMcpGlobal: () => Promise<void>
+    }
+
+    orcv2: {
+      start: (orchestratorId: string, payload: OrcV2StartPayload) => Promise<{ ok: boolean }>
+      cancel: (orchestratorId: string) => Promise<void>
+      merge: (orchestratorId: string, sourceRepoPath: string) => Promise<{ ok: boolean }>
+      cleanup: (orchestratorId: string) => Promise<void>
+      registerNode: (nodeId: string, orchestratorId: string) => Promise<void>
+      onAgentSpawned: (cb: (event: RepoAgentSpawnedEvent) => void) => () => void
+      onStatus: (cb: (event: OrcV2StatusEvent) => void) => () => void
+      onNoteUpdate: (cb: (event: OrcV2NoteEvent) => void) => () => void
+      onAgentCommit: (cb: (event: AgentCommitEvent) => void) => () => void
+      onConflictDetected: (cb: (event: ConflictDetectedEvent) => void) => () => void
+      onMergeProgress: (cb: (event: MergeProgressEvent) => void) => () => void
     }
 
     windowpicker: {

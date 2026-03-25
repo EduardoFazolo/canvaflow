@@ -9,6 +9,7 @@ import { CanvasOverlay } from './CanvasOverlay'
 import { NodeLayer } from './NodeLayer'
 import { ConnectionLayer } from './ConnectionLayer'
 import { ClusterLayer } from '../../../plugins/orchestrator/renderer/ClusterLayer'
+import { ClusterLayerV2 } from '../../../plugins/orchestrator-v2/renderer/ClusterLayerV2'
 import { CanvasContextMenu } from './CanvasContextMenu'
 import { createNotionNoteFromDrop, NotionCanvasDropPayload } from '../../../plugins/notion/utils/notionDrag'
 import { plugins } from '../../../plugins'
@@ -266,6 +267,7 @@ export function Canvas(): React.ReactElement {
         <GridRenderer camera={camera} />
         <CanvasOverlay camera={camera}>
           <ClusterLayer />
+          <ClusterLayerV2 />
           <ConnectionLayer />
           <NodeLayer />
         </CanvasOverlay>

@@ -14,6 +14,7 @@ import { registerTrelloHandlers } from '../plugins/trello/main/handlers'
 import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
 import { registerOrchestratorHandlers } from '../plugins/orchestrator/main/handlers'
+import { registerOrchestratorV2Handlers } from '../plugins/orchestrator-v2/main/handlers'
 import { registerWindowPickerHandlers } from '../plugins/windowpicker/main/handlers'
 
 // Suppress noisy Chromium GPU/Skia internal errors that are benign in webview usage
@@ -146,6 +147,7 @@ app.whenReady().then(async () => {
   registerGitHandlers(ipcMain)
   registerLovableHandlers(ipcMain)
   registerOrchestratorHandlers(ipcMain, () => mainWindow?.webContents ?? null)
+  registerOrchestratorV2Handlers(ipcMain, () => mainWindow?.webContents ?? null)
   registerWindowPickerHandlers(ipcMain)
 
   // Init tmux and clean up orphan sessions from deleted nodes

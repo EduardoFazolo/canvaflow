@@ -6,6 +6,15 @@ import type {
   OrchestratorStatusEvent,
   NoteUpdateEvent,
 } from '../plugins/orchestrator/shared/types'
+import type {
+  OrcV2StartPayload,
+  RepoAgentSpawnedEvent,
+  OrcV2StatusEvent,
+  OrcV2NoteEvent,
+  AgentCommitEvent,
+  ConflictDetectedEvent,
+  MergeProgressEvent,
+} from '../plugins/orchestrator-v2/shared/types'
 
 interface NodeMetadataRow { nodeId: string; lastFocusedAt: number; focusCount: number; tags: string }
 
@@ -284,6 +293,59 @@ contextBridge.exposeInMainWorld('orchestrator', {
     const listener = (_: unknown, event: NoteUpdateEvent) => cb(event)
     ipcRenderer.on('orchestrator:note-update', listener)
     return () => ipcRenderer.removeListener('orchestrator:note-update', listener)
+  },
+})
+
+contextBridge.exposeInMainWorld('orcv2', {
+  start: (orchestratorId: string, payload: OrcV2StartPayload): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('orcv2:start', orchestratorId, payload),
+
+  cancel: (orchestratorId: string): Promise<void> =>
+    ipcRenderer.invoke('orcv2:cancel', orchestratorId),
+
+  merge: (orchestratorId: string, sourceRepoPath: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('orcv2:merge', orchestratorId, sourceRepoPath),
+
+  cleanup: (orchestratorId: string): Promise<void> =>
+    ipcRenderer.invoke('orcv2:cleanup', orchestratorId),
+
+  registerNode: (nodeId: string, orchestratorId: string): Promise<void> =>
+    ipcRenderer.invoke('orcv2:register-node', nodeId, orchestratorId),
+
+  onAgentSpawned: (cb: (event: RepoAgentSpawnedEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: RepoAgentSpawnedEvent) => cb(event)
+    ipcRenderer.on('orcv2:agent-spawned', listener)
+    return () => ipcRenderer.removeListener('orcv2:agent-spawned', listener)
+  },
+
+  onStatus: (cb: (event: OrcV2StatusEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: OrcV2StatusEvent) => cb(event)
+    ipcRenderer.on('orcv2:status', listener)
+    return () => ipcRenderer.removeListener('orcv2:status', listener)
+  },
+
+  onNoteUpdate: (cb: (event: OrcV2NoteEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: OrcV2NoteEvent) => cb(event)
+    ipcRenderer.on('orcv2:note-update', listener)
+    return () => ipcRenderer.removeListener('orcv2:note-update', listener)
+  },
+
+  onAgentCommit: (cb: (event: AgentCommitEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: AgentCommitEvent) => cb(event)
+    ipcRenderer.on('orcv2:agent-commit', listener)
+    return () => ipcRenderer.removeListener('orcv2:agent-commit', listener)
+  },
+
+  onConflictDetected: (cb: (event: ConflictDetectedEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: ConflictDetectedEvent) => cb(event)
+    ipcRenderer.on('orcv2:conflict-detected', listener)
+    return () => ipcRenderer.removeListener('orcv2:conflict-detected', listener)
+  },
+
+  onMergeProgress: (cb: (event: MergeProgressEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: MergeProgressEvent) => cb(event)
+    ipcRenderer.on('orcv2:merge-progress', listener)
+    return () => ipcRenderer.removeListener('orcv2:merge-progress', listener)
   },
 })
 
