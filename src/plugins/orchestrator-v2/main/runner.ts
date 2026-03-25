@@ -1,7 +1,6 @@
 import { spawn, execSync } from 'child_process'
-import { existsSync, mkdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { tmpdir } from 'os'
 import type { WebContents } from 'electron'
 import type {
   OrcV2StartPayload,
@@ -18,21 +17,23 @@ const AGENT_NODE_H = 520
 const AGENT_NODE_GAP = 40
 
 const PROMPT = (task: string, markdown: string) => `
-You are a task orchestrator. Break down the following task into 2-5 focused, parallel sub-tasks for specialized agents.
+You are a task decomposition engine. Your ONLY job is to split a task into 2-5 parallel sub-tasks.
 
-Each agent will work in its OWN CLONE of the repository on its OWN BRANCH.
+DO NOT explore files, read code, or use any tools. DO NOT ask questions. DO NOT explain.
+Output ONLY a raw JSON array. No markdown fences. No text before or after.
 
 Task: ${task}
 ${markdown ? `\nDetails:\n${markdown}` : ''}
 
-Respond ONLY with a valid JSON array (no markdown fences, no explanation):
-[{"title": "Short Title", "task": "1-3 sentence description", "branch": "feat/short-kebab-name"}, ...]
+Output format (ONLY this, nothing else):
+[{"title": "Short Title", "task": "Detailed 1-3 sentence description of what to implement", "branch": "feat/short-kebab-name"}, ...]
 
 Rules:
-- Keep titles under 30 characters
-- Branch names must start with "feat/" and be unique
-- Make sub-tasks as independent as possible — minimize file overlap
-- Be concrete and actionable
+- 2-5 sub-tasks, each independent and parallelizable
+- Titles under 30 characters
+- Branch names start with "feat/" and are unique
+- Each task description must be specific enough for a developer to implement without asking questions
+- Minimize file overlap between tasks
 `.trim()
 
 // Active orchestrator runs
@@ -43,8 +44,26 @@ const activeRuns = new Map<string, { proc: ReturnType<typeof spawn>; pollTimer?:
  * Returns the absolute path of the clone.
  */
 function cloneRepo(sourceRepo: string, branch: string, agentIndex: number, orchestratorId: string): string {
-  const base = join(tmpdir(), 'canvaflow-v2', orchestratorId)
+  // Clone inside the workspace directory itself (.orcv2-tmp/) so Claude
+  // already trusts it — it's a subdirectory of a workspace the user approved.
+  const tmpRoot = join(sourceRepo, '.orcv2-tmp')
+  const base = join(tmpRoot, orchestratorId)
   if (!existsSync(base)) mkdirSync(base, { recursive: true })
+
+  // Ensure .orcv2-tmp is gitignored in the source repo
+  const gitignorePath = join(sourceRepo, '.gitignore')
+  try {
+    const existing = existsSync(gitignorePath)
+      ? readFileSync(gitignorePath, 'utf-8')
+      : ''
+    if (!existing.includes('.orcv2-tmp')) {
+      const nl = existing.endsWith('\n') || !existing ? '' : '\n'
+      writeFileSync(gitignorePath, existing + nl + '.orcv2-tmp\n')
+    }
+  } catch {
+    // best effort
+  }
+
   const clonePath = join(base, `agent-${agentIndex}`)
 
   // --local --shared: hardlinks object store, near-instant, minimal disk
@@ -147,7 +166,7 @@ export function runOrchestratorV2(
 
   const proc = spawn(
     'claude',
-    ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'],
+    ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku', '--max-turns', '1'],
     {
       shell: true,
       env: { ...process.env },

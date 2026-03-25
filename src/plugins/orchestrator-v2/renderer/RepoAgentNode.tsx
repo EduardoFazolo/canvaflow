@@ -24,15 +24,17 @@ function shellEscape(s: string): string {
   return s.replace(/'/g, "'\\''")
 }
 
-function buildAgentPrompts(
+/**
+ * Build the system prompt for the agent. The user prompt (task) is handled
+ * separately via a file — see handleLaunchClaude.
+ */
+function buildSystemPrompt(
   myTask: string,
   branch: string,
   repoPath: string,
   orchestratorNode: NodeData | undefined,
-): { systemPrompt: string; userPrompt: string } {
-  if (!orchestratorNode) {
-    return { systemPrompt: '', userPrompt: myTask }
-  }
+): string {
+  if (!orchestratorNode) return ''
 
   const mainTask = (orchestratorNode.props.task as string) ?? ''
   const agentIds = (orchestratorNode.props.agentIds as string[] | undefined) ?? []
@@ -48,7 +50,7 @@ function buildAgentPrompts(
     siblingTasks.push(`- "${nodeTitle}" (branch: ${nodeBranch}): ${nodeTask}`)
   }
 
-  const systemPrompt = [
+  return [
     `You are part of a multi-agent cluster working on: "${mainTask}"`,
     `You are working in your OWN CLONE of the repository at: ${repoPath}`,
     `Your branch: ${branch}`,
@@ -64,8 +66,6 @@ function buildAgentPrompts(
     `5. Keep changes minimal and focused on your specific task.`,
     `6. When done, provide a brief summary of which files you created or modified.`,
   ].join('\n')
-
-  return { systemPrompt, userPrompt: myTask }
 }
 
 export function RepoAgentNode({ node }: Props): React.ReactElement {
@@ -86,16 +86,26 @@ export function RepoAgentNode({ node }: Props): React.ReactElement {
     if (commitsRef.current) commitsRef.current.scrollTop = commitsRef.current.scrollHeight
   }, [commits.length])
 
-  const handleLaunchClaude = useCallback(() => {
+  const handleLaunchClaude = useCallback(async () => {
     const orchNode = orchestratorId
       ? useNodeStore.getState().nodes.get(orchestratorId)
       : undefined
-    const { systemPrompt, userPrompt } = buildAgentPrompts(task, branch, repoPath, orchNode)
+    const systemPrompt = buildSystemPrompt(task, branch, repoPath, orchNode)
 
+    // Write the user prompt to a file so we can pass it via $(cat ...) —
+    // this avoids ALL terminal.write timing issues and shell escaping problems.
+    const promptFilePath = repoPath + '/.orcv2-prompt.txt'
+    const systemPromptFilePath = repoPath + '/.orcv2-system-prompt.txt'
+    await window.fs.writeFile(promptFilePath, task)
+    if (systemPrompt) {
+      await window.fs.writeFile(systemPromptFilePath, systemPrompt)
+    }
+
+    // Build flags: read prompt from file via $(cat ...) so shell handles escaping
     const flags = [
       '--dangerously-skip-permissions',
-      systemPrompt ? `--append-system-prompt '${shellEscape(systemPrompt)}'` : '',
-      `'${shellEscape(userPrompt)}'`,
+      systemPrompt ? `--append-system-prompt "$(cat '${shellEscape(systemPromptFilePath)}')"` : '',
+      `"$(cat '${shellEscape(promptFilePath)}')"`,
     ].filter(Boolean).join(' ')
 
     const newNode = add('claude', node.x, node.y, {
