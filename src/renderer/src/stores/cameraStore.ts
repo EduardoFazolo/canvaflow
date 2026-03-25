@@ -15,7 +15,7 @@ interface CameraStore {
 }
 
 export const MIN_ZOOM = 0.05
-const MAX_ZOOM = 5
+const MAX_ZOOM = 2
 const ZOOM_SPEED = 0.001
 
 // Last known cursor position in canvas-local coordinates.
