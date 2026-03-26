@@ -76,6 +76,9 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
           <span style={{ flex: 1 }}>New Window Picker</span>
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧W</span>
         </ContextMenuItem>
+        <ContextMenuItem onClick={() => addAndFocus('kanban', 490, 280)}>
+          New Kanban
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => fitAllNodes(useNodeStore.getState().nodes)}>
           <span style={{ flex: 1 }}>Fit All Nodes</span>
