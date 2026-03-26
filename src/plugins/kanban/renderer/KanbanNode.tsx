@@ -3,59 +3,7 @@ import { nanoid } from 'nanoid'
 import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { ColorPicker } from '../../../renderer/src/components/ui/color-picker'
 import { useNodeStore, type NodeData } from '../../../renderer/src/stores/nodeStore'
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface KanbanCard {
-  id: string
-  title: string
-  description?: string
-}
-
-interface KanbanColumn {
-  id: string
-  title: string
-  color: string
-  cards: KanbanCard[]
-}
-
-interface KanbanBoard {
-  id: string
-  name: string
-  columns: KanbanColumn[]
-}
-
-interface KanbanState {
-  boards: KanbanBoard[]
-  activeBoardId: string
-}
-
-// ---------------------------------------------------------------------------
-// Defaults
-// ---------------------------------------------------------------------------
-
-const DEFAULT_COLORS = ['#868e96', '#1c7ed6', '#f08c00', '#2f9e44']
-
-function createDefaultBoard(): KanbanBoard {
-  return {
-    id: nanoid(8),
-    name: 'Board 1',
-    columns: [
-      { id: nanoid(8), title: 'BACKLOG', color: DEFAULT_COLORS[0], cards: [] },
-      { id: nanoid(8), title: 'IN PROGRESS', color: DEFAULT_COLORS[1], cards: [] },
-      { id: nanoid(8), title: 'REVIEW', color: DEFAULT_COLORS[2], cards: [] },
-      { id: nanoid(8), title: 'DONE', color: DEFAULT_COLORS[3], cards: [] },
-    ],
-  }
-}
-
-function getInitialState(props: Record<string, unknown>): KanbanState {
-  if (props.kanbanState) return props.kanbanState as KanbanState
-  const board = createDefaultBoard()
-  return { boards: [board], activeBoardId: board.id }
-}
+import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
 
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
@@ -99,7 +47,6 @@ function CardItem({
         dragCardId = card.id
         dragSourceColId = columnId
         e.dataTransfer.effectAllowed = 'move'
-        // Make the ghost semi-transparent
         const el = e.currentTarget as HTMLElement
         el.style.opacity = '0.4'
       }}
@@ -189,7 +136,6 @@ function CardItem({
         </div>
       ) : (
         <>
-          {/* Drag handle dots */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <svg width="6" height="14" viewBox="0 0 6 14" style={{ opacity: hovered ? 0.3 : 0.12, flexShrink: 0, marginTop: 1, transition: 'opacity 0.15s' }}>
               <circle cx="1.5" cy="2" r="1" fill="white" />
@@ -211,7 +157,6 @@ function CardItem({
             </div>
           </div>
 
-          {/* Delete button */}
           {hovered && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
@@ -268,7 +213,6 @@ function ColumnHeader({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Status dot */}
       <div style={{ width: 7, height: 7, borderRadius: '50%', background: column.color, flexShrink: 0 }} />
 
       {editing ? (
@@ -309,14 +253,12 @@ function ColumnHeader({
         </span>
       )}
 
-      {/* Card count */}
       <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 600, marginLeft: -2 }}>
         {cardCount}
       </span>
 
       <div style={{ flex: 1 }} />
 
-      {/* Color picker */}
       {hovered && (
         <ColorPicker
           color={column.color}
@@ -325,7 +267,6 @@ function ColumnHeader({
         />
       )}
 
-      {/* Delete column */}
       {hovered && (
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(column.id) }}
@@ -351,31 +292,22 @@ function ColumnHeader({
 // ---------------------------------------------------------------------------
 
 export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
-  const { update } = useNodeStore()
-  const [state, setState] = useState<KanbanState>(() => getInitialState(node.props))
-  const [boardMenuOpen, setBoardMenuOpen] = useState(false)
-  const boardMenuRef = useRef<HTMLDivElement>(null)
+  const workspaceId = useNodeStore((s) => s.activeWorkspaceId)
+  const { state, setState: setKanbanState, load, loaded } = useKanbanStore()
 
-  // Persist to node props on state change
+  // Load kanban data for this workspace on mount
+  useEffect(() => {
+    if (workspaceId) load(workspaceId)
+  }, [workspaceId, load])
+
   const persist = useCallback(
     (next: KanbanState) => {
-      setState(next)
-      update(node.id, { props: { ...node.props, kanbanState: next } })
+      setKanbanState(next)
     },
-    [node.id, node.props, update],
+    [setKanbanState],
   )
 
   const activeBoard = state.boards.find((b) => b.id === state.activeBoardId) ?? state.boards[0]
-
-  // Close board menu on outside click
-  useEffect(() => {
-    if (!boardMenuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (boardMenuRef.current && !boardMenuRef.current.contains(e.target as Node)) setBoardMenuOpen(false)
-    }
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [boardMenuOpen])
 
   // ----- Board operations -----
 
@@ -383,7 +315,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     const board = createDefaultBoard()
     board.name = `Board ${state.boards.length + 1}`
     persist({ boards: [...state.boards, board], activeBoardId: board.id })
-    setBoardMenuOpen(false)
   }, [state, persist])
 
   const removeBoard = useCallback((boardId: string) => {
@@ -491,7 +422,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
 
       const newColumns = activeBoard.columns.map((col) => {
         if (col.id === srcColId && col.id === targetColId) {
-          // Reorder within same column
           const without = col.cards.filter((c) => c.id !== cardId)
           const idx = insertIndex ?? without.length
           without.splice(idx, 0, card)
@@ -515,6 +445,16 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     },
     [activeBoard, updateBoard],
   )
+
+  if (!loaded) {
+    return (
+      <BaseNode node={node}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+          Loading...
+        </div>
+      </BaseNode>
+    )
+  }
 
   return (
     <BaseNode node={node}>
@@ -547,7 +487,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               onDelete={state.boards.length > 1 ? () => removeBoard(board.id) : undefined}
             />
           ))}
-          {/* Add board button */}
           <button
             onClick={(e) => { e.stopPropagation(); addBoard() }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -591,7 +530,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             />
           ))}
 
-          {/* Add column */}
           <button
             onClick={(e) => { e.stopPropagation(); addColumn() }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -776,7 +714,6 @@ function Column({
         transition: 'background 0.12s',
       }}
     >
-      {/* Color bar at top */}
       <div style={{ height: 3, background: column.color, borderRadius: '8px 8px 0 0', flexShrink: 0 }} />
 
       <ColumnHeader
@@ -787,7 +724,6 @@ function Column({
         onDelete={onDelete}
       />
 
-      {/* Cards */}
       <div
         style={{
           flex: 1,
@@ -822,7 +758,6 @@ function Column({
           </div>
         ))}
 
-        {/* Add card */}
         {adding ? (
           <div style={{ padding: 2 }}>
             <input
