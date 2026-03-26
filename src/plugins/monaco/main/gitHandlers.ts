@@ -3,6 +3,12 @@ import { join } from 'path'
 import simpleGit from 'simple-git'
 import type { IpcMainLike } from '../../types'
 
+export interface WorktreeEntry {
+  path: string
+  head: string
+  branch: string
+}
+
 const gitCache = new Map<string, ReturnType<typeof simpleGit>>()
 
 function git(rootPath: string) {
@@ -166,6 +172,42 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
           refs: line.slice(i4 + 1),
         }
       })
+    } catch { return [] }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Git Worktree handlers
+  // ---------------------------------------------------------------------------
+
+  ipc.handle('git:wt:add', async (_e, rootPath: string, branchName: string, baseBranch?: string): Promise<string> => {
+    const worktreePath = join(rootPath, '.worktrees', branchName)
+    const g = git(rootPath)
+    const args = ['worktree', 'add', '-b', branchName, worktreePath]
+    if (baseBranch) args.push(baseBranch)
+    await g.raw(args)
+    return worktreePath
+  })
+
+  ipc.handle('git:wt:remove', async (_e, rootPath: string, worktreePath: string): Promise<void> => {
+    await git(rootPath).raw(['worktree', 'remove', worktreePath, '--force'])
+  })
+
+  ipc.handle('git:wt:list', async (_e, rootPath: string): Promise<WorktreeEntry[]> => {
+    try {
+      const result = await git(rootPath).raw(['worktree', 'list', '--porcelain'])
+      const worktrees: WorktreeEntry[] = []
+      const blocks = result.trim().split('\n\n')
+      for (const block of blocks) {
+        const lines = block.split('\n')
+        const wt: Partial<WorktreeEntry> = {}
+        for (const line of lines) {
+          if (line.startsWith('worktree ')) wt.path = line.slice(9)
+          if (line.startsWith('HEAD ')) wt.head = line.slice(5)
+          if (line.startsWith('branch ')) wt.branch = line.slice(7).replace('refs/heads/', '')
+        }
+        if (wt.path && wt.head && wt.branch) worktrees.push(wt as WorktreeEntry)
+      }
+      return worktrees
     } catch { return [] }
   })
 }

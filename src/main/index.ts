@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, session, Menu, WebContents, shell, clipboa
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions } from './pty'
+import { setupCoordinatorHandlers } from './agentCoordinator'
 import { initDatabase, getAllNodeIds } from './database'
 import { setupWorkspaceHandlers } from './workspace'
 import { startAgentSignalServer } from '../modules/servers/agentic_signals/main/server'
@@ -86,6 +87,7 @@ function createWindow(): void {
   }
 
   setupPtyHandlers(() => mainWindow?.webContents ?? null)
+  setupCoordinatorHandlers(() => mainWindow?.webContents ?? null)
   startAgentSignalServer(() => mainWindow?.webContents ?? null)
 
   // Apply session setup to every webview that attaches (covers named sessions too)

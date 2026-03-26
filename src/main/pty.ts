@@ -5,6 +5,7 @@ import { tmuxManager } from './tmux'
 import { AGENT_SIGNAL_PORT } from '../modules/servers/agentic_signals/shared/constants'
 import { detectAgentStatusFromTerminalBuffer, sanitizeTerminalOutput } from '../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../modules/servers/agentic_signals/shared/debug'
+import { coordinatorOnData } from './agentCoordinator'
 import type { AgentStatus } from '../modules/servers/agentic_signals/shared/types'
 
 interface IPty {
@@ -91,6 +92,9 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
 
     ptyProcess.onData((data: string) => {
       try {
+        // Agent coordinator sees data FIRST — can intercept and write back
+        coordinatorOnData(id, data, (d) => ptyProcess.write(d))
+
         const wc = getWebContents()
         if (wc && !wc.isDestroyed()) {
           wc.send('terminal:data', id, data)

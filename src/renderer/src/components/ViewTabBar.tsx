@@ -1,5 +1,6 @@
 import React from 'react'
-import { useViewStore } from '../stores/viewStore'
+import { useViewStore, type ViewInstance } from '../stores/viewStore'
+import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
 
 export const VIEW_TABBAR_H = 28
 
@@ -22,10 +23,61 @@ function SettingsTabIcon(): React.ReactElement {
   )
 }
 
-function tabIcon(type: string): React.ReactElement {
-  if (type === 'canvas') return <CanvasTabIcon />
-  if (type === 'settings') return <SettingsTabIcon />
+function GitBranchIcon(): React.ReactElement {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <circle cx="3" cy="2.5" r="1.2" stroke="currentColor" strokeWidth="1"/>
+      <circle cx="3" cy="7.5" r="1.2" stroke="currentColor" strokeWidth="1"/>
+      <circle cx="7" cy="3.5" r="1.2" stroke="currentColor" strokeWidth="1"/>
+      <path d="M3 3.7v2.6M5.8 3.5C4.5 3.5 3 4 3 5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function tabIcon(inst: ViewInstance): React.ReactElement {
+  if (inst.worktreePath) return <GitBranchIcon />
+  if (inst.type === 'canvas') return <CanvasTabIcon />
+  if (inst.type === 'settings') return <SettingsTabIcon />
   return <CanvasTabIcon />
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  idle: 'rgba(255,255,255,0.2)',
+  thinking: '#f59e0b',
+  executing: '#3b82f6',
+  modifying_files: '#3b82f6',
+  done: '#22c55e',
+  error: '#ef4444',
+  needs_permission: '#f59e0b',
+  needs_input: '#f59e0b',
+}
+
+function StatusDot({ status }: { status?: AgentStatus }): React.ReactElement | null {
+  if (!status) return null
+  const color = STATUS_COLORS[status] || 'rgba(255,255,255,0.2)'
+  const isPulsing = status === 'thinking' || status === 'executing' || status === 'modifying_files' || status === 'needs_permission' || status === 'needs_input'
+
+  return (
+    <span
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        background: color,
+        flexShrink: 0,
+        animation: isPulsing ? 'worktree-pulse 1.5s ease-in-out infinite' : undefined,
+      }}
+    />
+  )
+}
+
+// Inject the pulse animation keyframes once
+const PULSE_STYLE_ID = 'worktree-pulse-style'
+if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID)) {
+  const style = document.createElement('style')
+  style.id = PULSE_STYLE_ID
+  style.textContent = `@keyframes worktree-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`
+  document.head.appendChild(style)
 }
 
 export function ViewTabBar(): React.ReactElement {
@@ -43,6 +95,12 @@ export function ViewTabBar(): React.ReactElement {
     }}>
       {instances.map((inst) => {
         const isActive = inst.id === activeId
+        const isWorktree = !!inst.worktreePath
+        const labelColor = isWorktree
+          ? (isActive ? '#22d3ee' : 'rgba(34,211,238,0.5)')
+          : (isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)')
+        const accentColor = isWorktree ? '#22d3ee' : '#a78bfa'
+
         return (
           <div
             key={inst.id}
@@ -57,17 +115,25 @@ export function ViewTabBar(): React.ReactElement {
               position: 'relative',
               borderRight: '1px solid rgba(255,255,255,0.05)',
               background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
-              color: isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)',
+              color: labelColor,
               fontSize: 11,
               fontWeight: isActive ? 500 : 400,
               whiteSpace: 'nowrap',
               transition: 'color 0.1s, background 0.1s',
             }}
             onMouseEnter={(e) => {
-              if (!isActive) (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)'
+              if (!isActive) {
+                (e.currentTarget as HTMLElement).style.color = isWorktree
+                  ? 'rgba(34,211,238,0.8)'
+                  : 'rgba(255,255,255,0.6)'
+              }
             }}
             onMouseLeave={(e) => {
-              if (!isActive) (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.35)'
+              if (!isActive) {
+                (e.currentTarget as HTMLElement).style.color = isWorktree
+                  ? 'rgba(34,211,238,0.5)'
+                  : 'rgba(255,255,255,0.35)'
+              }
             }}
           >
             {/* Active indicator line at bottom */}
@@ -76,13 +142,15 @@ export function ViewTabBar(): React.ReactElement {
                 position: 'absolute',
                 bottom: 0, left: 0, right: 0,
                 height: 1.5,
-                background: '#a78bfa',
+                background: accentColor,
                 borderRadius: '1px 1px 0 0',
               }} />
             )}
 
-            <span style={{ color: isActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
-              {tabIcon(inst.type)}
+            {isWorktree && <StatusDot status={inst.agentStatus} />}
+
+            <span style={{ color: isActive ? (isWorktree ? 'rgba(34,211,238,0.6)' : 'rgba(255,255,255,0.5)') : 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
+              {tabIcon(inst)}
             </span>
 
             {inst.label}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNodeStore } from '../../stores/nodeStore'
 import { useCameraStore } from '../../stores/cameraStore'
 import { getActiveWorkspace } from '../../stores/workspaceStore'
+import { titleToBranchName } from '../../utils/branch'
 
 export interface TaskDropPayload {
   title: string
@@ -62,16 +63,6 @@ const AGENTS: Agent[] = [
     ),
   },
 ]
-
-function titleToBranchName(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 60)
-}
 
 interface Props {
   /** Label shown above the title (e.g. "Kanban Card", "Trello Card") */
