@@ -306,6 +306,20 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
           )
         })()}
 
+        {/* Window size & zoom level display */}
+        <span
+          style={{
+            fontSize: 10,
+            color: 'rgba(255,255,255,0.45)',
+            userSelect: 'none',
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+          }}
+          title="Window size and content zoom level"
+        >
+          {Math.round(node.width)}x{Math.round(node.height)}px &middot; {Math.round((node.contentScale ?? 1) * 100)}%
+        </span>
+
         {/* Zoom out button */}
         <button
           style={{ ...btnBase }}
