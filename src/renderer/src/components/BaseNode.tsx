@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { NodeData } from '../stores/nodeStore'
 import { useNodeStore } from '../stores/nodeStore'
 import { useCameraStore } from '../stores/cameraStore'
@@ -103,6 +103,23 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
   const focused = focusedNodeId === node.id
   const selected = selectedNodeIds.has(node.id)
   const agentStatus = node.agentStatus
+
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  // Prevent canvas from hijacking wheel events when this node is focused.
+  // Cmd/Ctrl+wheel (pinch zoom) is allowed through so canvas zoom still works.
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent): void => {
+      if (e.ctrlKey || e.metaKey) return
+      if (useNodeStore.getState().focusedNodeId === node.id) {
+        e.stopPropagation()
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [node.id])
 
   const isDragging = useRef(false)
   const dragStart = useRef({ px: 0, py: 0, nx: 0, ny: 0 })
@@ -331,7 +348,7 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
       </div>
 
       {/* Content */}
-      <div style={{
+      <div ref={contentRef} style={{
         height: node.height - 32,
         position: 'relative',
         overflow: 'hidden',
