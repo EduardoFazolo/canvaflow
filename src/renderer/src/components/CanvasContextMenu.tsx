@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { Camera, screenToWorld } from '../stores/cameraStore'
 import { useNodeStore, NodeType } from '../stores/nodeStore'
 import {
@@ -9,6 +9,8 @@ import { useCameraStore } from '../stores/cameraStore'
 import { fitAllNodes } from '../utils/canvasUtils'
 import { getActiveWorkspace } from '../stores/workspaceStore'
 import { zoomFitNode } from '../utils/zoomFocus'
+import { useBranchZoneStore } from '../stores/branchZoneStore'
+import { NewBranchModal } from './NewBranchModal'
 
 interface Props {
   camera: Camera
@@ -18,6 +20,15 @@ interface Props {
 export function CanvasContextMenu({ children }: Props): React.ReactElement {
   const { add } = useNodeStore()
   const clickWorldPos = useRef({ x: 0, y: 0 })
+  const [showBranchModal, setShowBranchModal] = useState(false)
+
+  const getZonePath = (): string | null => {
+    const zone = useBranchZoneStore.getState().getZoneAtPoint(
+      clickWorldPos.current.x,
+      clickWorldPos.current.y,
+    )
+    return zone?.worktreePath ?? null
+  }
 
   const addAndFocus = (type: NodeType, ox: number, oy: number, props?: Record<string, unknown>) => {
     const node = add(type, clickWorldPos.current.x - ox, clickWorldPos.current.y - oy, props)
@@ -40,7 +51,7 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getZonePath() || getActiveWorkspace()?.path || ''
           addAndFocus('terminal', 300, 200, { cwd })
         }}>
           <span style={{ flex: 1 }}>New Terminal</span>
@@ -60,14 +71,14 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
           New Trello
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getZonePath() || getActiveWorkspace()?.path || ''
           addAndFocus('claude', 350, 240, { cwd })
         }}>
           <span style={{ flex: 1 }}>New Claude</span>
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧C</span>
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          const rootPath = getActiveWorkspace()?.path || ''
+          const rootPath = getZonePath() || getActiveWorkspace()?.path || ''
           addAndFocus('monaco', 500, 320, { rootPath })
         }}>
           <span style={{ flex: 1 }}>New Editor</span>
@@ -84,11 +95,45 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
           New Kanban
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => setShowBranchModal(true)}>
+          <span style={{ flex: 1 }}>New Branch</span>
+          <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌥B</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onClick={() => fitAllNodes(useNodeStore.getState().nodes)}>
           <span style={{ flex: 1 }}>Fit All Nodes</span>
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘0</span>
         </ContextMenuItem>
       </ContextMenuContent>
+
+      {showBranchModal && (
+        <NewBranchModal
+          onClose={() => setShowBranchModal(false)}
+          onConfirm={async (branchName, fromMain) => {
+            const ws = getActiveWorkspace()
+            if (!ws) { setShowBranchModal(false); return }
+
+            const result = fromMain
+              ? await window.git.worktreeAdd(ws.path, branchName, '', 'main')
+              : await window.git.worktreeAdd(ws.path, branchName, '')
+
+            if (!result.ok || !result.path) {
+              console.error('[branch-zone] worktree creation failed:', result.error)
+              setShowBranchModal(false)
+              return
+            }
+
+            useBranchZoneStore.getState().addZone(
+              ws.id,
+              branchName,
+              result.path,
+              clickWorldPos.current.x,
+              clickWorldPos.current.y,
+            )
+            setShowBranchModal(false)
+          }}
+        />
+      )}
     </ContextMenu>
   )
 }

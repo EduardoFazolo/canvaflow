@@ -56,6 +56,19 @@ export interface NodeMetadataRow {
   pinned: number // 0 | 1
 }
 
+export interface BranchZoneRow {
+  id: string
+  workspaceId: string
+  branch: string
+  worktreePath: string
+  color: string
+  x: number
+  y: number
+  width: number
+  height: number
+  createdAt: number
+}
+
 // ---------------------------------------------------------------------------
 // DB instance
 // ---------------------------------------------------------------------------
@@ -136,6 +149,21 @@ function migrate(): void {
       name      TEXT NOT NULL,
       createdAt INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS branch_zones (
+      id            TEXT PRIMARY KEY,
+      workspaceId   TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      branch        TEXT NOT NULL,
+      worktreePath  TEXT NOT NULL,
+      color         TEXT NOT NULL,
+      x             REAL NOT NULL,
+      y             REAL NOT NULL,
+      width         REAL NOT NULL,
+      height        REAL NOT NULL,
+      createdAt     INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_branch_zones_workspace ON branch_zones(workspaceId);
   `)
 
   // Incremental migrations — safe to run on existing databases
@@ -327,4 +355,29 @@ export function upsertNodeMetadata(nodeId: string, patch: Partial<Omit<NodeMetad
       description = excluded.description,
       pinned = excluded.pinned
   `).run(row)
+}
+
+// ---------------------------------------------------------------------------
+// Branch zones — parallel branch areas within a workspace canvas
+// ---------------------------------------------------------------------------
+
+export function getBranchZones(workspaceId: string): BranchZoneRow[] {
+  return db.prepare('SELECT * FROM branch_zones WHERE workspaceId = ? ORDER BY createdAt ASC')
+    .all(workspaceId) as BranchZoneRow[]
+}
+
+export function saveBranchZone(zone: BranchZoneRow): void {
+  db.prepare(`
+    INSERT INTO branch_zones (id, workspaceId, branch, worktreePath, color, x, y, width, height, createdAt)
+    VALUES (@id, @workspaceId, @branch, @worktreePath, @color, @x, @y, @width, @height, @createdAt)
+    ON CONFLICT(id) DO UPDATE SET
+      branch = excluded.branch,
+      color = excluded.color,
+      x = excluded.x, y = excluded.y,
+      width = excluded.width, height = excluded.height
+  `).run(zone)
+}
+
+export function deleteBranchZone(id: string): void {
+  db.prepare('DELETE FROM branch_zones WHERE id = ?').run(id)
 }

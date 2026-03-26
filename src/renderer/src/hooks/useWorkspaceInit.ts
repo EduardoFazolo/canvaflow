@@ -5,6 +5,7 @@ import { useNodeStore, NodeData, NodeType } from '../stores/nodeStore'
 import { useCameraStore, Camera } from '../stores/cameraStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivationStore } from '../stores/activationStore'
+import { useBranchZoneStore } from '../stores/branchZoneStore'
 
 // Activate nodes after React has had a chance to mount the components.
 // Two rAF frames ensures the DOM commit + paint cycle completes first.
@@ -223,6 +224,12 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
         useCameraStore.setState({ camera: { x: 0, y: 0, zoom: 1 } })
       }
     }
+
+    // Load branch zones for this workspace
+    try {
+      const zoneRows = await window.branchZones.get(workspaceId)
+      useBranchZoneStore.getState().loadZones(workspaceId, zoneRows)
+    } catch {}
 
     await api.appState.set('lastWorkspaceId', workspaceId)
   } catch (err) {

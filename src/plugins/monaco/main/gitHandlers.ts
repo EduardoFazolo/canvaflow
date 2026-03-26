@@ -1,5 +1,6 @@
-import { unlink } from 'fs/promises'
-import { join } from 'path'
+import { unlink, mkdir } from 'fs/promises'
+import { join, basename } from 'path'
+import { homedir } from 'os'
 import simpleGit from 'simple-git'
 import type { IpcMainLike } from '../../types'
 
@@ -166,6 +167,65 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
           refs: line.slice(i4 + 1),
         }
       })
+    } catch { return [] }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Worktrees — lightweight parallel branches within a workspace
+  // ---------------------------------------------------------------------------
+
+  ipc.handle('git:worktreeAdd', async (_e, rootPath: string, branch: string, _worktreePath: string, startPoint?: string) => {
+    try {
+      const g = git(rootPath)
+      // Place worktrees outside the repo: ~/.canvaflow/worktrees/<repo-name>/<branch-slug>
+      const repoName = basename(rootPath)
+      const branchSlug = branch.replace(/\//g, '-')
+      const worktreeDir = join(homedir(), '.canvaflow', 'worktrees', repoName)
+      await mkdir(worktreeDir, { recursive: true })
+      const worktreePath = join(worktreeDir, branchSlug)
+
+      // Check if branch already exists
+      const branches = await g.branchLocal()
+      if (branches.all.includes(branch)) {
+        await g.raw(['worktree', 'add', worktreePath, branch])
+      } else {
+        const args = ['worktree', 'add', '-b', branch, worktreePath]
+        if (startPoint) args.push(startPoint)
+        await g.raw(args)
+      }
+      return { ok: true, path: worktreePath }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? String(e) }
+    }
+  })
+
+  ipc.handle('git:worktreeRemove', async (_e, rootPath: string, worktreePath: string) => {
+    try {
+      await git(rootPath).raw(['worktree', 'remove', worktreePath, '--force'])
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? String(e) }
+    }
+  })
+
+  ipc.handle('git:worktreeList', async (_e, rootPath: string) => {
+    try {
+      const output = await git(rootPath).raw(['worktree', 'list', '--porcelain'])
+      if (!output.trim()) return []
+      const worktrees: Array<{ path: string; branch: string; head: string }> = []
+      let current: Record<string, string> = {}
+      for (const line of output.split('\n')) {
+        if (line.startsWith('worktree ')) {
+          if (current.path) worktrees.push({ path: current.path, branch: current.branch || '', head: current.head || '' })
+          current = { path: line.slice(9) }
+        } else if (line.startsWith('HEAD ')) {
+          current.head = line.slice(5, 12)
+        } else if (line.startsWith('branch ')) {
+          current.branch = line.slice(7).replace('refs/heads/', '')
+        }
+      }
+      if (current.path) worktrees.push({ path: current.path, branch: current.branch || '', head: current.head || '' })
+      return worktrees
     } catch { return [] }
   })
 }

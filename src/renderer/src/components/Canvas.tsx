@@ -10,6 +10,7 @@ import { NodeLayer } from './NodeLayer'
 import { ConnectionLayer } from './ConnectionLayer'
 import { ClusterLayer } from '../../../plugins/orchestrator/renderer/ClusterLayer'
 import { CanvasContextMenu } from './CanvasContextMenu'
+import { BranchZoneLayer } from './BranchZoneLayer'
 import { createNotionNoteFromDrop, NotionCanvasDropPayload } from '../../../plugins/notion/utils/notionDrag'
 import { plugins } from '../../../plugins'
 
@@ -282,6 +283,7 @@ export function Canvas(): React.ReactElement {
       >
         <GridRenderer camera={camera} />
         <CanvasOverlay camera={camera}>
+          <BranchZoneLayer />
           <ClusterLayer />
           <ConnectionLayer />
           <NodeLayer />

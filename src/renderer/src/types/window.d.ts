@@ -61,8 +61,27 @@ interface BrowserCaptureAndHideResult {
   didHide: boolean
 }
 
+interface BranchZoneRow {
+  id: string
+  workspaceId: string
+  branch: string
+  worktreePath: string
+  color: string
+  x: number
+  y: number
+  width: number
+  height: number
+  createdAt: number
+}
+
 declare global {
   interface Window {
+    branchZones: {
+      get: (workspaceId: string) => Promise<BranchZoneRow[]>
+      save: (zone: BranchZoneRow) => Promise<void>
+      delete: (id: string) => Promise<void>
+    }
+
     terminal: {
       create: (id: string, workspaceId: string, cwd: string, shell: string) => Promise<void>
       write: (id: string, data: string) => void
@@ -244,6 +263,9 @@ declare global {
       checkoutBranch: (rootPath: string, name: string, createNew: boolean) => Promise<void>
       push: (rootPath: string) => Promise<{ error?: string }>
       remoteUrl: (rootPath: string) => Promise<string | null>
+      worktreeAdd: (rootPath: string, branch: string, worktreePath: string, startPoint?: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+      worktreeRemove: (rootPath: string, worktreePath: string) => Promise<{ ok: boolean; error?: string }>
+      worktreeList: (rootPath: string) => Promise<Array<{ path: string; branch: string; head: string }>>
     }
 
     fs: {

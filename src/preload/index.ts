@@ -95,6 +95,17 @@ contextBridge.exposeInMainWorld('sessions', {
     ipcRenderer.invoke('session:openLoginWindow', partition, url),
 })
 
+contextBridge.exposeInMainWorld('branchZones', {
+  get: (workspaceId: string): Promise<BranchZoneRow[]> =>
+    ipcRenderer.invoke('branchZones:get', workspaceId),
+
+  save: (zone: BranchZoneRow): Promise<void> =>
+    ipcRenderer.invoke('branchZones:save', zone),
+
+  delete: (id: string): Promise<void> =>
+    ipcRenderer.invoke('branchZones:delete', id),
+})
+
 contextBridge.exposeInMainWorld('git', {
   clone: (repoUrl: string, targetDir: string): Promise<void> =>
     ipcRenderer.invoke('git:clone', repoUrl, targetDir),
@@ -127,6 +138,12 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:checkoutBranch', rootPath, name, createNew),
   remoteUrl: (rootPath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:remoteUrl', rootPath),
+  worktreeAdd: (rootPath: string, branch: string, worktreePath: string, startPoint?: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('git:worktreeAdd', rootPath, branch, worktreePath, startPoint),
+  worktreeRemove: (rootPath: string, worktreePath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('git:worktreeRemove', rootPath, worktreePath),
+  worktreeList: (rootPath: string): Promise<Array<{ path: string; branch: string; head: string }>> =>
+    ipcRenderer.invoke('git:worktreeList', rootPath),
 })
 
 contextBridge.exposeInMainWorld('fs', {
@@ -403,6 +420,19 @@ export interface NotionExternalDragExport {
   filePath: string
   fileUrl: string
   pageUrl: string
+}
+
+export interface BranchZoneRow {
+  id: string
+  workspaceId: string
+  branch: string
+  worktreePath: string
+  color: string
+  x: number
+  y: number
+  width: number
+  height: number
+  createdAt: number
 }
 
 export interface GitFileStatus {

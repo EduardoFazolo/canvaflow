@@ -11,7 +11,8 @@ import {
   mergeNodeProps,
   getBrowserSessions, saveBrowserSession, deleteBrowserSession,
   getNodeMetadata, upsertNodeMetadata,
-  WorkspaceRow, NodeRow, CameraRow, BrowserSessionRow,
+  getBranchZones, saveBranchZone, deleteBranchZone,
+  WorkspaceRow, NodeRow, CameraRow, BrowserSessionRow, BranchZoneRow,
 } from './database'
 
 export function setupWorkspaceHandlers(): void {
@@ -123,6 +124,16 @@ export function setupWorkspaceHandlers(): void {
       win.on('closed', () => resolve())
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Branch zones
+  // -------------------------------------------------------------------------
+
+  ipcMain.handle('branchZones:get', (_e, workspaceId: string) => getBranchZones(workspaceId))
+
+  ipcMain.handle('branchZones:save', (_e, zone: BranchZoneRow) => saveBranchZone(zone))
+
+  ipcMain.handle('branchZones:delete', (_e, id: string) => deleteBranchZone(id))
 
   // -------------------------------------------------------------------------
   // File system
