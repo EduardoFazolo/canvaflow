@@ -4,6 +4,7 @@ import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { ColorPicker } from '../../../renderer/src/components/ui/color-picker'
 import { useNodeStore, type NodeData } from '../../../renderer/src/stores/nodeStore'
 import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
+import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
 
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
@@ -11,6 +12,7 @@ import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn,
 
 let dragCardId: string | null = null
 let dragSourceColId: string | null = null
+let droppedInternally = false
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -21,11 +23,13 @@ function CardItem({
   columnId,
   onDelete,
   onUpdate,
+  onExternalDrop,
 }: {
   card: KanbanCard
   columnId: string
   onDelete: (colId: string, cardId: string) => void
   onUpdate: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
+  onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
 }): React.ReactElement {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(card.title)
@@ -46,14 +50,20 @@ function CardItem({
       onDragStart={(e) => {
         dragCardId = card.id
         dragSourceColId = columnId
+        droppedInternally = false
         e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('application/canvaflow-kanban-card', '')
         const el = e.currentTarget as HTMLElement
         el.style.opacity = '0.4'
       }}
       onDragEnd={(e) => {
         (e.currentTarget as HTMLElement).style.opacity = '1'
+        if (!droppedInternally && e.clientX > 0 && e.clientY > 0) {
+          onExternalDrop(card, e.clientX, e.clientY)
+        }
         dragCardId = null
         dragSourceColId = null
+        droppedInternally = false
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -294,6 +304,7 @@ function ColumnHeader({
 export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
   const workspaceId = useNodeStore((s) => s.activeWorkspaceId)
   const { state, setState: setKanbanState, load, loaded } = useKanbanStore()
+  const [pendingDrop, setPendingDrop] = useState<KanbanDropPayload | null>(null)
 
   // Load kanban data for this workspace on mount
   useEffect(() => {
@@ -400,6 +411,12 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     )
   }, [activeBoard, updateBoard])
 
+  // ----- External drop (card dragged onto canvas) -----
+
+  const onExternalDrop = useCallback((card: KanbanCard, clientX: number, clientY: number) => {
+    setPendingDrop({ title: card.title, description: card.description, clientX, clientY })
+  }, [])
+
   // ----- Drag & drop between columns -----
 
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -458,6 +475,9 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
 
   return (
     <BaseNode node={node}>
+      {pendingDrop && (
+        <KanbanDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />
+      )}
       <div
         style={{
           display: 'flex',
@@ -524,6 +544,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               onAddCard={addCard}
               onDeleteCard={deleteCard}
               onUpdateCard={updateCard}
+              onExternalDrop={onExternalDrop}
               onRename={renameColumn}
               onColorChange={changeColumnColor}
               onDelete={removeColumn}
@@ -664,6 +685,7 @@ function Column({
   onAddCard,
   onDeleteCard,
   onUpdateCard,
+  onExternalDrop,
   onRename,
   onColorChange,
   onDelete,
@@ -674,6 +696,7 @@ function Column({
   onAddCard: (colId: string, title: string) => void
   onDeleteCard: (colId: string, cardId: string) => void
   onUpdateCard: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
+  onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
   onRename: (colId: string, title: string) => void
   onColorChange: (colId: string, color: string) => void
   onDelete: (colId: string) => void
@@ -699,6 +722,7 @@ function Column({
       onDrop={(e) => {
         e.preventDefault()
         setDropHighlight(false)
+        droppedInternally = true
         onDrop(column.id)
       }}
       style={{
@@ -746,6 +770,7 @@ function Column({
               e.preventDefault()
               e.stopPropagation()
               setDropHighlight(false)
+              droppedInternally = true
               onDrop(column.id, idx)
             }}
           >
@@ -754,6 +779,7 @@ function Column({
               columnId={column.id}
               onDelete={onDeleteCard}
               onUpdate={onUpdateCard}
+              onExternalDrop={onExternalDrop}
             />
           </div>
         ))}
