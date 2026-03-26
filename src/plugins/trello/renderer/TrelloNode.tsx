@@ -9,7 +9,6 @@ import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholde
 import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
 import { getPreparedTrelloExport, primeTrelloExport } from '../utils/trelloDrag'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
-import { zoomFitNode, zoomExit } from '../../../renderer/src/utils/zoomFocus'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 import { TrelloDropModal, TrelloDropPayload } from './TrelloDropModal'
 import type { TrelloCard } from '../main/handlers'
@@ -548,8 +547,6 @@ export function TrelloNode({ node }: Props): React.ReactElement {
     const onIpcMessage = (e: any) => {
       const { channel, args } = e
 
-      if (channel === 'canvas:double-tap') { zoomFitNode(node.id); return }
-      if (channel === 'canvas:zoom-exit') { zoomExit(); return }
       if (channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY } = args[0]
         const wvRect = (webviewRef.current as HTMLElement)?.getBoundingClientRect()

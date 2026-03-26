@@ -10,7 +10,6 @@ import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
 import { getPreparedNotionExternalDrag, primeNotionExternalDrag } from '../utils/notionDrag'
 import { NotionDropModal, NotionDropPayload } from './NotionDropModal'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
-import { zoomFitNode, zoomExit } from '../../../renderer/src/utils/zoomFocus'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 
 declare global {
@@ -479,14 +478,6 @@ export function NotionNode({ node }: Props): React.ReactElement {
     // IPC messages from webview preload — intentionally synchronous, no awaits
     const onIpcMessage = (e: any) => {
       const { channel, args } = e
-      if (channel === 'canvas:double-tap') {
-        zoomFitNode(node.id)
-        return
-      }
-      if (channel === 'canvas:zoom-exit') {
-        zoomExit()
-        return
-      }
       if (channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = args[0]
         const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()

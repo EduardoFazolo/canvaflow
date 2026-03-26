@@ -39,9 +39,8 @@ export function Canvas(): React.ReactElement {
     }, delay)
   }, [])
 
-  // Double-tap on a node (title bar / terminal content / any host-page area) to zoom-fit;
-  // double-tap again to zoom back out.
-  // Webview content (browser, notion) is handled via preload IPC instead (see zoomFocus.ts).
+  // Double-tap on a node's title bar to zoom-fit; double-tap again to zoom back out.
+  // Only the title bar triggers zoom so double-tap-to-select still works in content areas.
   useEffect(() => {
     const tap = { lastTime: 0, lastNodeId: null as string | null }
 
@@ -67,6 +66,11 @@ export function Canvas(): React.ReactElement {
       }
       if (!hitNode) return
       if ((e.target as HTMLElement).closest('[data-no-canvas-gesture]')) return
+
+      // Only trigger zoom on double-tap if tapping the title bar (top 32px of the node)
+      const TITLE_BAR_HEIGHT = 32
+      const isOnTitleBar = wy >= hitNode.y && wy <= hitNode.y + TITLE_BAR_HEIGHT
+      if (!isOnTitleBar) return
 
       const now = Date.now()
       const isDoubleTap = hitNode.id === tap.lastNodeId && now - tap.lastTime < 350
