@@ -414,7 +414,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
   // ----- External drop (card dragged onto canvas) -----
 
   const onExternalDrop = useCallback((card: KanbanCard, clientX: number, clientY: number) => {
-    setPendingDrop({ title: card.title, description: card.description, clientX, clientY })
+    setPendingDrop({ title: card.title, subtitle: card.description, clientX, clientY })
   }, [])
 
   // ----- Drag & drop between columns -----
