@@ -4,10 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import { NodeData, useNodeStore } from '../stores/nodeStore'
 import { BaseNode } from './BaseNode'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
+import { ContextMenuItem } from './ui/context-menu'
 
 const TITLE_H = 32
 const TOOLBAR_H = 34
@@ -236,7 +233,7 @@ interface Props {
 }
 
 export function NoteNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack } = useNodeStore()
+  const { update } = useNodeStore()
   const [showToolbar, setShowToolbar] = useState((node.props.showToolbar as boolean) ?? true)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const externalUpdateRef = useRef(false)
@@ -290,10 +287,13 @@ export function NoteNode({ node }: Props): React.ReactElement {
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode
           node={node}
+          contextMenuExtra={
+            <ContextMenuItem onClick={toggleToolbar}>
+              {showToolbar ? 'Hide Toolbar' : 'Show Toolbar'}
+            </ContextMenuItem>
+          }
           titleExtra={
             <button
               title={showToolbar ? 'Hide toolbar' : 'Show toolbar'}
@@ -334,22 +334,6 @@ export function NoteNode({ node }: Props): React.ReactElement {
             </div>
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuItem onClick={toggleToolbar}>
-          {showToolbar ? 'Hide Toolbar' : 'Show Toolbar'}
-        </ContextMenuItem>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }
 

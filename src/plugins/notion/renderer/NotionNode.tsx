@@ -11,10 +11,7 @@ import { getPreparedNotionExternalDrag, primeNotionExternalDrag } from '../utils
 import { NotionDropModal, NotionDropPayload } from './NotionDropModal'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
 import { zoomFitNode, zoomExit } from '../../../renderer/src/utils/zoomFocus'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from '../../../renderer/src/components/ui/context-menu'
+import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 
 declare global {
   namespace JSX {
@@ -283,7 +280,7 @@ interface Props {
 }
 
 export function NotionNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const webviewRef = useRef<any>(null)
   const [preloadPath, setPreloadPath] = useState<string | null>(null)
@@ -578,9 +575,11 @@ export function NotionNode({ node }: Props): React.ReactElement {
 
   return (
     <>
-    <ContextMenu>
-      <ContextMenuTrigger>
-        <BaseNode node={node}>
+        <BaseNode node={node} contextMenuExtra={
+          <ContextMenuItem onClick={() => update(node.id, { minimized: !node.minimized })}>
+            {node.minimized ? 'Restore' : 'Minimize'}
+          </ContextMenuItem>
+        }>
           {/* Toolbar */}
           <div
             style={{
@@ -701,23 +700,6 @@ export function NotionNode({ node }: Props): React.ReactElement {
             )}
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuItem onClick={() => update(node.id, { minimized: !node.minimized })}>
-          {node.minimized ? 'Restore' : 'Minimize'}
-        </ContextMenuItem>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-
-    </ContextMenu>
 
     {/* Drop target highlight */}
     {dropTarget && createPortal(

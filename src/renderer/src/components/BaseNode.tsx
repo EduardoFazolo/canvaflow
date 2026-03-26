@@ -5,6 +5,10 @@ import { useCameraStore } from '../stores/cameraStore'
 import { useTemplateStore } from '../stores/templateStore'
 import { useActivationStore } from '../stores/activationStore'
 import { SIDEBAR_W } from './Sidebar'
+import {
+  ContextMenu, ContextMenuContent, useContextMenu,
+  ContextMenuItem, ContextMenuSeparator, ContextMenuSub,
+} from './ui/context-menu'
 
 const btnBase: React.CSSProperties = {
   width: 22, height: 22,
@@ -89,16 +93,33 @@ function TitleField({ node, focused }: { node: NodeData; focused: boolean }): Re
   )
 }
 
+/** Tiny helper — hooks into the nearest ContextMenu and opens it on right-click */
+function ContextMenuHandle({ children, ...rest }: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
+  const { openAt } = useContextMenu()
+  return (
+    <div
+      {...rest}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        openAt(e.clientX, e.clientY)
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 interface Props {
   node: NodeData
   children?: React.ReactNode
-  onContextMenu?: (e: React.MouseEvent) => void
   titleExtra?: React.ReactNode
+  contextMenuExtra?: React.ReactNode
   noCssZoom?: boolean
 }
 
-export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom }: Props): React.ReactElement {
-  const { update, bringToFront, remove, focusedNodeId, setFocusedNodeId, selectedNodeIds, trackFocus } = useNodeStore()
+export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZoom }: Props): React.ReactElement {
+  const { update, bringToFront, sendToBack, remove, focusedNodeId, setFocusedNodeId, selectedNodeIds, trackFocus } = useNodeStore()
   const { setDraggingOverSidebar, add: addTemplate } = useTemplateStore()
   const focused = focusedNodeId === node.id
   const selected = selectedNodeIds.has(node.id)
@@ -233,30 +254,31 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
         overflow: 'hidden',
         transition: 'box-shadow 0.15s',
       }}
+      data-node-id={node.id}
       onPointerDown={(e) => { bringToFront(node.id); setFocusedNodeId(node.id); useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
-      onContextMenu={onContextMenu}
     >
-      {/* Title bar */}
-      <div
-        style={{
-          height: 32,
-          display: 'flex',
-          alignItems: 'center',
-          paddingLeft: 12,
-          paddingRight: 8,
-          gap: 4,
-          background: focused ? '#1c1c1c' : '#161616',
-          borderRadius: '8px 8px 0 0',
-          border: focused ? '1px solid rgba(167,139,250,0.25)' : '1px solid rgba(255,255,255,0.07)',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-          transition: 'background 0.15s, border-color 0.15s',
-          cursor: 'grab',
-          userSelect: 'none',
-        }}
-        onPointerDown={onHeaderPointerDown}
-        onPointerMove={onHeaderPointerMove}
-        onPointerUp={onHeaderPointerUp}
-      >
+      {/* Title bar with context menu */}
+      <ContextMenu>
+          <ContextMenuHandle
+            style={{
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              paddingLeft: 12,
+              paddingRight: 8,
+              gap: 4,
+              background: focused ? '#1c1c1c' : '#161616',
+              borderRadius: '8px 8px 0 0',
+              border: focused ? '1px solid rgba(167,139,250,0.25)' : '1px solid rgba(255,255,255,0.07)',
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              transition: 'background 0.15s, border-color 0.15s',
+              cursor: 'grab',
+              userSelect: 'none',
+            }}
+            onPointerDown={onHeaderPointerDown}
+            onPointerMove={onHeaderPointerMove}
+            onPointerUp={onHeaderPointerUp}
+          >
         {/* Drag dots */}
         <svg width="8" height="12" viewBox="0 0 8 12" style={{ opacity: focused ? 0.35 : 0.15, flexShrink: 0, marginRight: 6, transition: 'opacity 0.15s' }}>
           <circle cx="2" cy="2" r="1.2" fill="white" />
@@ -359,7 +381,17 @@ export function BaseNode({ node, children, onContextMenu, titleExtra, noCssZoom 
             <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
         </button>
-      </div>
+          </ContextMenuHandle>
+        <ContextMenuContent>
+          {contextMenuExtra}
+          <ContextMenuSub trigger="Order">
+            <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
+            <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem destructive onClick={() => remove(node.id)}>Close</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {/* Content */}
       <div ref={contentRef} style={{

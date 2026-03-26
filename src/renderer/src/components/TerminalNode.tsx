@@ -15,10 +15,6 @@ import { ActivationFade } from './NodePlaceholder'
 import { normalizeClientPointForElement } from '../utils/terminalMouse'
 import { detectAgentStatusFromTerminalBuffer, detectAgentStatusFromTitle, sanitizeTerminalOutput } from '../../../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../../../modules/servers/agentic_signals/shared/debug'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -105,7 +101,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   const renderInspectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const baseFontSizeRef = useRef<number>(13)
   const statusBufferRef = useRef('')
-  const { update, remove, bringToFront, sendToBack, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const focusedNodeIdRef = useRef(focusedNodeId)
   useEffect(() => { focusedNodeIdRef.current = focusedNodeId }, [focusedNodeId])
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
@@ -409,8 +405,6 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   }, [node.contentScale, node.id])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} noCssZoom>
           <div
             ref={containerRef}
@@ -433,17 +427,5 @@ export function TerminalNode({ node }: Props): React.ReactElement {
             </ActivationFade>
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ContextMenuCtx {
   open: boolean
@@ -13,6 +14,10 @@ const Ctx = createContext<ContextMenuCtx>({
   close: () => {},
   openAt: () => {},
 })
+
+export function useContextMenu(): ContextMenuCtx {
+  return useContext(Ctx)
+}
 
 // Root — provides state, renders trigger wrapper + portal content
 export function ContextMenu({ children }: { children: React.ReactNode }): React.ReactElement {
@@ -44,18 +49,21 @@ export function ContextMenu({ children }: { children: React.ReactNode }): React.
 interface TriggerProps {
   children: React.ReactNode
   onContextMenu?: (e: React.MouseEvent) => void
+  /** Return false to let the native context menu through instead */
+  shouldOpen?: (e: React.MouseEvent) => boolean
   style?: React.CSSProperties
 }
 
-export function ContextMenuTrigger({ children, onContextMenu, style }: TriggerProps): React.ReactElement {
+export function ContextMenuTrigger({ children, onContextMenu, shouldOpen, style }: TriggerProps): React.ReactElement {
   const { openAt } = useContext(Ctx)
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (shouldOpen && !shouldOpen(e)) return  // let native menu through
     e.preventDefault()
     e.stopPropagation()
     onContextMenu?.(e)   // side-effect first (e.g. capture world position)
     openAt(e.clientX, e.clientY)
-  }, [onContextMenu, openAt])
+  }, [onContextMenu, shouldOpen, openAt])
 
   return (
     <div style={{ display: 'contents', ...style }} onContextMenu={handleContextMenu}>
@@ -81,7 +89,7 @@ export function ContextMenuContent({ children }: { children: React.ReactNode }):
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div
       ref={ref}
       style={{
@@ -100,7 +108,8 @@ export function ContextMenuContent({ children }: { children: React.ReactNode }):
       onPointerDown={(e) => e.stopPropagation()}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

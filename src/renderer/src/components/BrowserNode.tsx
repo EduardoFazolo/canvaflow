@@ -7,10 +7,6 @@ import { useActivationStore } from '../stores/activationStore'
 import { NodePlaceholder } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
 import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 
 declare global {
   namespace JSX {
@@ -294,7 +290,7 @@ interface Props {
 }
 
 export function BrowserNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, add, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, add, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const webviewRef = useRef<any>(null)
   const webviewAreaRef = useRef<HTMLDivElement>(null)
@@ -570,8 +566,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   const webviewHeight = node.height - TITLE_H - TOOLBAR_H
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} titleExtra={(() => {
               const gh = parseGitHubRepo(urlBar)
               if (!gh) return null
@@ -791,18 +785,5 @@ export function BrowserNode({ node }: Props): React.ReactElement {
             )}
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }

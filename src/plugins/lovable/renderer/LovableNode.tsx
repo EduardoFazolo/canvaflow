@@ -6,10 +6,7 @@ import { useSessionStore } from '../../../renderer/src/stores/sessionStore'
 import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholder'
 import { zoomFitNode, zoomExit } from '../../../renderer/src/utils/zoomFocus'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator,
-} from '../../../renderer/src/components/ui/context-menu'
+import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 
 declare global {
   namespace JSX {
@@ -416,7 +413,7 @@ interface Props {
 }
 
 export function LovableNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const webviewRef = useRef<any>(null)
   const [preloadPath, setPreloadPath] = useState<string | null>(null)
@@ -572,9 +569,11 @@ export function LovableNode({ node }: Props): React.ReactElement {
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger>
-          <BaseNode node={node}>
+          <BaseNode node={node} contextMenuExtra={
+            <ContextMenuItem onClick={() => update(node.id, { minimized: !node.minimized ? 1 : 0 })}>
+              {node.minimized ? 'Restore' : 'Minimize'}
+            </ContextMenuItem>
+          }>
             {/* Toolbar */}
             <div
               style={{
@@ -706,21 +705,6 @@ export function LovableNode({ node }: Props): React.ReactElement {
               <PromptOverlay state={overlayState} prompt={pendingPrompt} />
             </div>
           </BaseNode>
-        </ContextMenuTrigger>
-
-        <ContextMenuContent>
-          <ContextMenuItem onClick={() => update(node.id, { minimized: !node.minimized ? 1 : 0 })}>
-            {node.minimized ? 'Restore' : 'Minimize'}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => remove(node.id)} style={{ color: 'rgba(248,113,113,0.85)' }}>
-            Close
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
     </>
   )
 }

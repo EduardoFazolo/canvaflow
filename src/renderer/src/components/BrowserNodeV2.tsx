@@ -17,10 +17,6 @@ import {
   showBrowserLive,
 } from '../utils/browserSnapshotHandoff'
 import { onCanvasInteractionEnd, onCanvasInteractionStart } from '../utils/canvasInteraction'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 
 const TITLE_H = 32
 const TOOLBAR_H = 36
@@ -331,7 +327,7 @@ interface Props {
 }
 
 export function BrowserNodeV2({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, add, setFocusedNodeId } = useNodeStore()
+  const { update, add, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const isFocused = useNodeStore((s) => s.focusedNodeId === node.id)
   const isActiveWorkspace = useNodeStore((s) =>
@@ -933,8 +929,6 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   }, [node.id, update])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} noCssZoom titleExtra={(() => {
               const gh = parseGitHubRepo(urlBar)
               const isLovable = urlBar.includes('lovable.dev')
@@ -1152,18 +1146,5 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
             {!hasScreenshot && <BrowserPlaceholderFade isActivated={isActivated} />}
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }
