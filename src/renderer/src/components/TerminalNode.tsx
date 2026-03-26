@@ -410,6 +410,23 @@ export function TerminalNode({ node }: Props): React.ReactElement {
             ref={containerRef}
             style={{ width: '100%', height: node.height - 32, padding: isActivated ? '6px 8px' : 0, boxSizing: 'border-box', position: 'relative' }}
             onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
+            onContextMenu={async (e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const term = xtermRef.current
+              if (!term) return
+              const action = await (window as any).contextMenu.showTerminalMenu(term.hasSelection())
+              if (action === 'copy' && term.hasSelection()) {
+                navigator.clipboard.writeText(term.getSelection())
+              } else if (action === 'paste') {
+                const text = await navigator.clipboard.readText()
+                if (text) window.terminal.write(node.id, text)
+              } else if (action === 'selectAll') {
+                term.selectAll()
+              } else if (action === 'clear') {
+                term.clear()
+              }
+            }}
           >
             <ActivationFade isActivated={isActivated} icon="terminal">
               {/* isolation: isolate contains xterm's internal z-indices so our overlay can sit above them */}

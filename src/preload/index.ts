@@ -184,6 +184,11 @@ contextBridge.exposeInMainWorld('app', {
     ipcRenderer.invoke('app:openExternal', url),
 })
 
+contextBridge.exposeInMainWorld('contextMenu', {
+  showTerminalMenu: (hasSelection: boolean): Promise<string | null> =>
+    ipcRenderer.invoke('contextMenu:showTerminalMenu', hasSelection),
+})
+
 contextBridge.exposeInMainWorld('browser', {
   create: (nodeId: string, partition: string, url: string, bounds: { x: number; y: number; width: number; height: number }): Promise<void> =>
     ipcRenderer.invoke('browser:create', nodeId, partition, url, bounds),

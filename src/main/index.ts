@@ -155,6 +155,20 @@ app.whenReady().then(async () => {
   // Set up default browser session
   setupBrowserSession(session.fromPartition('persist:canvaflow-ws-default'))
 
+  // Terminal context menu — returns the clicked action so the renderer can act on it
+  ipcMain.handle('contextMenu:showTerminalMenu', (_event, hasSelection: boolean) => {
+    return new Promise<string | null>((resolve) => {
+      const menu = Menu.buildFromTemplate([
+        { label: 'Copy', enabled: hasSelection, click: () => resolve('copy') },
+        { label: 'Paste', click: () => resolve('paste') },
+        { type: 'separator' },
+        { label: 'Select All', click: () => resolve('selectAll') },
+        { label: 'Clear', click: () => resolve('clear') },
+      ])
+      menu.popup({ callback: () => resolve(null) })
+    })
+  })
+
   createWindow()
 
   // Native right-click context menu with full browser-like options.
