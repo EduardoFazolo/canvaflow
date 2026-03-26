@@ -50,27 +50,31 @@ export function useAutoSave(): void {
   useEffect(() => {
     const unsubNodes = useNodeStore.subscribe((state) => {
       const activeWsId = state.activeWorkspaceId
-      // Don't persist worktree view nodes to the DB — they use virtual workspace keys
-      if (!activeWsId || activeWsId.startsWith('wt-')) return
+      if (!activeWsId) return
       if (nodeTimerRef.current) clearTimeout(nodeTimerRef.current)
       nodeTimerRef.current = setTimeout(async () => {
-        const rows = Array.from(state.nodes.values()).map((n) =>
-          nodeToRow(n, activeWsId)
-        )
-        await window.canvas.saveNodes(activeWsId, rows)
+        if (activeWsId.startsWith('wt-')) {
+          // Worktree views: persist to appState (no FK constraint)
+          const rows = Array.from(state.nodes.values()).map((n) => nodeToRow(n, activeWsId))
+          await window.appState.set(`wt_nodes_${activeWsId}`, JSON.stringify(rows))
+        } else {
+          const rows = Array.from(state.nodes.values()).map((n) => nodeToRow(n, activeWsId))
+          await window.canvas.saveNodes(activeWsId, rows)
+        }
       }, NODE_DEBOUNCE_MS)
     })
 
     const unsubCamera = useCameraStore.subscribe((state) => {
       const activeWsId = useNodeStore.getState().activeWorkspaceId
-      // Don't persist worktree view cameras — virtual keys have no DB row
-      if (!activeWsId || activeWsId.startsWith('wt-')) return
+      if (!activeWsId) return
       if (cameraTimerRef.current) clearTimeout(cameraTimerRef.current)
       cameraTimerRef.current = setTimeout(async () => {
-        await window.canvas.saveCamera({
-          workspaceId: activeWsId,
-          ...state.camera,
-        })
+        if (activeWsId.startsWith('wt-')) {
+          // Worktree views: persist camera to appState
+          await window.appState.set(`wt_camera_${activeWsId}`, JSON.stringify(state.camera))
+        } else {
+          await window.canvas.saveCamera({ workspaceId: activeWsId, ...state.camera })
+        }
       }, CAMERA_DEBOUNCE_MS)
     })
 
@@ -90,17 +94,26 @@ export function useAutoSave(): void {
         }
       }
 
-      // Synchronous save of ALL loaded workspaces (skip virtual worktree keys)
+      // Synchronous save of ALL loaded workspaces
       const { workspaceNodes, activeWorkspaceId } = useNodeStore.getState()
       for (const [wsId, nodes] of workspaceNodes.entries()) {
-        if (wsId.startsWith('wt-')) continue
-        const rows = Array.from(nodes.values()).map((n) => nodeToRow(n, wsId))
-        window.canvas.saveNodesSync(wsId, rows)
+        if (wsId.startsWith('wt-')) {
+          // Worktree views: persist to appState (async but best-effort on quit)
+          const rows = Array.from(nodes.values()).map((n) => nodeToRow(n, wsId))
+          window.appState.set(`wt_nodes_${wsId}`, JSON.stringify(rows))
+        } else {
+          const rows = Array.from(nodes.values()).map((n) => nodeToRow(n, wsId))
+          window.canvas.saveNodesSync(wsId, rows)
+        }
       }
 
-      // Camera: save active workspace (skip worktree views)
-      if (activeWorkspaceId && !activeWorkspaceId.startsWith('wt-')) {
-        window.canvas.saveCamera({ workspaceId: activeWorkspaceId, ...useCameraStore.getState().camera })
+      // Camera: save active workspace
+      if (activeWorkspaceId) {
+        if (activeWorkspaceId.startsWith('wt-')) {
+          window.appState.set(`wt_camera_${activeWorkspaceId}`, JSON.stringify(useCameraStore.getState().camera))
+        } else {
+          window.canvas.saveCamera({ workspaceId: activeWorkspaceId, ...useCameraStore.getState().camera })
+        }
       }
     }
 

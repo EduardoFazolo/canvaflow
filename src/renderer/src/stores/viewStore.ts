@@ -1,6 +1,16 @@
 import { create } from 'zustand'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
 
+let viewSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistViews(instances: ViewInstance[]): void {
+  if (viewSaveTimer) clearTimeout(viewSaveTimer)
+  viewSaveTimer = setTimeout(() => {
+    const worktreeViews = instances.filter((i) => i.worktreePath)
+    window.appState.set('worktree_views', JSON.stringify(worktreeViews))
+  }, 400)
+}
+
 export interface ViewInstance {
   id: string
   type: string
@@ -28,6 +38,7 @@ interface ViewStore {
   updateAgentStatus: (viewId: string, status: AgentStatus, agentNodeId?: string) => void
   getViewByNodeId: (nodeId: string) => ViewInstance | undefined
   getViewByCardId: (cardId: string) => ViewInstance | undefined
+  loadPersistedViews: () => Promise<void>
 }
 
 export const useViewStore = create<ViewStore>((set, get) => ({
@@ -57,6 +68,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
     const newActiveId = activeId === id
       ? (remaining[Math.max(0, idx - 1)]?.id ?? 'canvas')
       : activeId
+    persistViews(remaining)
     set({ instances: remaining, activeId: newActiveId })
   },
 
@@ -72,7 +84,11 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       sourceCardId,
       agentStatus: 'idle',
     }
-    set((s) => ({ instances: [...s.instances, instance], activeId: viewId }))
+    set((s) => {
+      const newInstances = [...s.instances, instance]
+      persistViews(newInstances)
+      return { instances: newInstances, activeId: viewId }
+    })
     return viewId
   },
 
@@ -92,5 +108,22 @@ export const useViewStore = create<ViewStore>((set, get) => ({
 
   getViewByCardId: (cardId) => {
     return get().instances.find((i) => i.sourceCardId === cardId)
+  },
+
+  loadPersistedViews: async () => {
+    try {
+      const raw = await window.appState.get('worktree_views')
+      if (!raw) return
+      const views = JSON.parse(raw) as ViewInstance[]
+      // Restore worktree views with idle agent status (agent not running after restart)
+      const restored = views.map((v) => ({
+        ...v,
+        agentStatus: 'idle' as AgentStatus,
+        agentNodeId: undefined,
+      }))
+      if (restored.length > 0) {
+        set((s) => ({ instances: [...s.instances, ...restored] }))
+      }
+    } catch {}
   },
 }))

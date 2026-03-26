@@ -232,17 +232,19 @@ describe('Agent Coordinator', () => {
       expect(write.mock.calls[0][0]).toBe('do stuff\r')
     })
 
-    it('does NOT inject task twice', async () => {
+    it('does NOT inject task twice — sends /commit instead on second prompt', async () => {
       await registerAgent('node-1', 'fix it')
       const write = vi.fn()
 
       emitData('node-1', '❯ ', write)
       await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('fix it\r')
 
-      // Prompt appears again after task completes — should NOT re-inject
+      // Prompt appears again after task completes — should send /commit, NOT re-inject task
+      write.mockClear()
       emitData('node-1', '❯ ', write)
-      await new Promise((r) => setTimeout(r, 500))
-      expect(write).toHaveBeenCalledTimes(1)
+      await vi.waitFor(() => expect(write).toHaveBeenCalled(), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('/commit\r')
     })
 
     it('injects task AFTER accepting permissions prompt', async () => {
@@ -466,6 +468,78 @@ describe('Agent Coordinator', () => {
       emitData('node-1', '❯ ', write)
       await new Promise((r) => setTimeout(r, 500))
       expect(write).not.toHaveBeenCalled()
+    })
+  })
+
+  // =========================================================================
+  // Post-task commit + push
+  // =========================================================================
+
+  describe('auto commit and push after task', () => {
+    it('sends /commit when agent finishes (prompt reappears after task)', async () => {
+      await registerAgent('node-1', 'fix bug')
+      const write = vi.fn()
+
+      // Boot → task injected
+      emitData('node-1', '❯ ', write)
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('fix bug\r')
+      write.mockClear()
+
+      // Agent works... then prompt reappears (agent done)
+      emitData('node-1', '❯ ', write)
+      await vi.waitFor(() => expect(write).toHaveBeenCalled(), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('/commit\r')
+    })
+
+    it('sends git push after commit finishes', async () => {
+      await registerAgent('node-1', 'fix bug')
+      const write = vi.fn()
+
+      // Boot → task
+      emitData('node-1', '❯ ', write)
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      write.mockClear()
+
+      // Agent done → /commit
+      emitData('node-1', '❯ ', write)
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('/commit\r')
+      write.mockClear()
+
+      // Commit done → git push
+      emitData('node-1', '❯ ', write)
+      await vi.waitFor(() => expect(write).toHaveBeenCalled(), { timeout: 1000 })
+      expect(write.mock.calls[0][0]).toBe('git push\r')
+    })
+
+    it('reaches done phase after push completes', async () => {
+      await registerAgent('node-1', 'fix bug')
+      const write = vi.fn()
+
+      // Boot → task → commit → push → done
+      emitData('node-1', '❯ ', write) // task
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      write.mockClear()
+
+      emitData('node-1', '❯ ', write) // commit
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      write.mockClear()
+
+      emitData('node-1', '❯ ', write) // push
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      write.mockClear()
+
+      emitData('node-1', '❯ ', write) // push done → phase = done
+      // No more writes expected
+      await new Promise((r) => setTimeout(r, 800))
+      expect(write).not.toHaveBeenCalled()
+
+      // Verify status was emitted
+      expect(mocks.webContents.send).toHaveBeenCalledWith(
+        'coordinator:status',
+        expect.objectContaining({ nodeId: 'node-1', phase: 'done' }),
+      )
     })
   })
 })

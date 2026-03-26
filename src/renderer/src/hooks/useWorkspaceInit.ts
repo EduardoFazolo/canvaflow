@@ -5,6 +5,7 @@ import { useNodeStore, NodeData, NodeType } from '../stores/nodeStore'
 import { useCameraStore, Camera } from '../stores/cameraStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivationStore } from '../stores/activationStore'
+import { useViewStore } from '../stores/viewStore'
 
 // Activate nodes after React has had a chance to mount the components.
 // Two rAF frames ensures the DOM commit + paint cycle completes first.
@@ -143,6 +144,9 @@ export function useWorkspaceInit(): void {
       if (activeId) {
         await loadWorkspaceCanvas(activeId)
       }
+
+      // Restore persisted worktree view tabs
+      await useViewStore.getState().loadPersistedViews()
     }
 
     init()

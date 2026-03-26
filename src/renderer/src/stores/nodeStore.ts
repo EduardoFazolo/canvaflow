@@ -37,6 +37,10 @@ interface NodeStore {
   workspaceNodes: Map<string, Map<string, NodeData>>
   activeWorkspaceId: string
 
+  // When set, new nodes get this as their default cwd (used by worktree views)
+  worktreeCwd: string | null
+  setWorktreeCwd: (cwd: string | null) => void
+
   // Workspace management
   loadWorkspace: (wsId: string, nodes: Map<string, NodeData>) => void
 
@@ -103,8 +107,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   nodes: new Map(),
   workspaceNodes: new Map(),
   activeWorkspaceId: '',
+  worktreeCwd: null,
   focusedNodeId: null,
   selectedNodeIds: new Set(),
+
+  setWorktreeCwd: (cwd) => set({ worktreeCwd: cwd }),
 
   loadWorkspace: (wsId, nodes) => set((s) => {
     const workspaceNodes = new Map(s.workspaceNodes)
@@ -205,6 +212,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   add: (type, x, y, props = {}) => {
     const id = nanoid()
     const zIndex = get().getMaxZIndex() + 1
+    // When on a worktree view, ALWAYS override cwd — callers like context menu
+    // and keyboard shortcuts pass getActiveWorkspace().path which is the main
+    // workspace, not the worktree. worktreeCwd takes priority.
+    const { worktreeCwd } = get()
+    const finalProps = worktreeCwd ? { ...props, cwd: worktreeCwd } : props
     const node: NodeData = {
       id, type, x, y,
       ...DEFAULT_SIZES[type],
@@ -212,7 +224,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       title: DEFAULT_TITLES[type],
       minimized: false,
       contentScale: 1,
-      props,
+      props: finalProps,
       createdAt: Date.now(),
     }
     set((s) => {

@@ -15,61 +15,82 @@ function renderView(type: string): React.ReactElement {
   return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Unknown view: {type}</div>
 }
 
+/** Track which view the nodeStore is currently showing */
+let _currentViewId = 'canvas'
+
+/**
+ * Get the workspace key used in nodeStore for a given view.
+ * Worktree views use their view ID. The main canvas uses the real workspace ID.
+ */
+function workspaceKeyForView(viewId: string): string {
+  const inst = useViewStore.getState().instances.find((i) => i.id === viewId)
+  if (inst?.worktreePath) return viewId // worktree views use their ID as workspace key
+  return useWorkspaceStore.getState().activeId || '' // main canvas uses real workspace ID
+}
+
+/**
+ * Save the current view's nodes and camera into their workspace slot,
+ * without triggering any DB writes (just in-memory bookkeeping).
+ */
+function saveCurrentViewState(): void {
+  const ns = useNodeStore.getState()
+  const wsKey = ns.activeWorkspaceId
+  if (!wsKey) return
+
+  // Save nodes back into workspaceNodes under the current key
+  const workspaceNodes = new Map(ns.workspaceNodes)
+  workspaceNodes.set(wsKey, new Map(ns.nodes))
+  useNodeStore.setState({ workspaceNodes })
+
+  // Save camera
+  _viewCameraCache.set(_currentViewId, { ...useCameraStore.getState().camera })
+}
+
+/**
+ * Synchronously switch the node store and camera to a given view.
+ * Exported so the kanban flow can call it directly before creating nodes.
+ */
+export function switchToView(viewId: string): void {
+  if (_currentViewId === viewId) return
+
+  const inst = useViewStore.getState().instances.find((i) => i.id === viewId)
+  if (!inst) return
+
+  // 1. Save the current view's state first
+  saveCurrentViewState()
+
+  // 2. Determine the new workspace key
+  const newWsKey = workspaceKeyForView(viewId)
+
+  // 3. Load the target view's nodes
+  const existing = useNodeStore.getState().workspaceNodes.get(newWsKey)
+  useNodeStore.getState().loadWorkspace(newWsKey, existing ?? new Map())
+
+  // 4. Set/clear worktree cwd
+  if (inst.worktreePath) {
+    useNodeStore.getState().setWorktreeCwd(inst.worktreePath)
+  } else {
+    useNodeStore.getState().setWorktreeCwd(null)
+  }
+
+  // 5. Restore camera
+  const cached = _viewCameraCache.get(viewId)
+  useCameraStore.setState({ camera: cached ?? { x: 0, y: 0, zoom: 1 } })
+
+  // 6. Update browser view visibility
+  window.browser.setCanvasActive(inst.type === 'canvas')
+
+  _currentViewId = viewId
+}
+
 export function ViewLayer(): React.ReactElement {
   const { instances, activeId } = useViewStore()
   const prevActiveId = useRef(activeId)
 
-  // When switching between canvas tabs, swap the node store's active workspace
   useEffect(() => {
     if (prevActiveId.current === activeId) return
-    const prevId = prevActiveId.current
     prevActiveId.current = activeId
-
-    const prevInst = useViewStore.getState().instances.find((i) => i.id === prevId)
-    const nextInst = useViewStore.getState().instances.find((i) => i.id === activeId)
-
-    // Save current camera for the view we're leaving
-    if (prevInst?.type === 'canvas') {
-      _viewCameraCache.set(prevId, { ...useCameraStore.getState().camera })
-    }
-
-    // If switching to a worktree canvas view, load its node set
-    if (nextInst?.type === 'canvas' && nextInst.worktreePath) {
-      const viewKey = nextInst.id
-      const existing = useNodeStore.getState().workspaceNodes.get(viewKey)
-      useNodeStore.getState().loadWorkspace(viewKey, existing ?? new Map())
-
-      // Restore camera for this view
-      const cached = _viewCameraCache.get(viewKey)
-      if (cached) {
-        useCameraStore.setState({ camera: cached })
-      } else {
-        useCameraStore.setState({ camera: { x: 0, y: 0, zoom: 1 } })
-      }
-
-      // Tell browser views we're on a canvas
-      window.browser.setCanvasActive(true)
-    }
-
-    // If switching back to main canvas, restore main workspace
-    if (nextInst?.type === 'canvas' && !nextInst.worktreePath) {
-      const mainWsId = useWorkspaceStore.getState().activeId
-      if (mainWsId) {
-        const existing = useNodeStore.getState().workspaceNodes.get(mainWsId)
-        useNodeStore.getState().loadWorkspace(mainWsId, existing ?? new Map())
-
-        const cached = _viewCameraCache.get('canvas')
-        if (cached) {
-          useCameraStore.setState({ camera: cached })
-        }
-      }
-      window.browser.setCanvasActive(true)
-    }
-
-    // If switching to settings, hide browser views
-    if (nextInst?.type === 'settings') {
-      window.browser.setCanvasActive(false)
-    }
+    switchToView(activeId)
   }, [activeId])
 
   return (

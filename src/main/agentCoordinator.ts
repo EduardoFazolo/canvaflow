@@ -76,7 +76,7 @@ const READY_PATTERNS = [
 // Tracked agent state
 // ---------------------------------------------------------------------------
 
-type AgentPhase = 'booting' | 'accepting-prompt' | 'ready' | 'working' | 'done'
+type AgentPhase = 'booting' | 'accepting-prompt' | 'ready' | 'working' | 'committing' | 'pushing' | 'done'
 
 interface TrackedAgent {
   nodeId: string
@@ -177,8 +177,8 @@ export function coordinatorOnData(nodeId: string, data: string, writeFn: (data: 
   }
 
   // --- Phase: WORKING ---
-  // Keep watching for mid-run prompts that need auto-acceptance
   if (agent.phase === 'working') {
+    // Check mid-run prompts that need auto-acceptance
     for (const pattern of PROMPT_PATTERNS) {
       if (!pattern.repeatable && agent.firedPatterns.has(pattern.id)) continue
       if (pattern.detect.test(clean)) {
@@ -188,6 +188,48 @@ export function coordinatorOnData(nodeId: string, data: string, writeFn: (data: 
         setTimeout(() => {
           agent.writeFn?.(pattern.response)
         }, pattern.delayMs)
+        return
+      }
+    }
+
+    // Detect when agent finishes: the ❯ prompt reappears
+    for (const readyRe of READY_PATTERNS) {
+      if (readyRe.test(clean)) {
+        agent.phase = 'committing'
+        agent.buffer = ''
+        emitCoordinatorStatus(nodeId, 'committing', 'Agent done, committing changes')
+        setTimeout(() => {
+          agent.writeFn?.('/commit\r')
+        }, 500)
+        return
+      }
+    }
+  }
+
+  // --- Phase: COMMITTING ---
+  // Wait for prompt after /commit finishes, then push
+  if (agent.phase === 'committing') {
+    for (const readyRe of READY_PATTERNS) {
+      if (readyRe.test(clean)) {
+        agent.phase = 'pushing'
+        agent.buffer = ''
+        emitCoordinatorStatus(nodeId, 'pushing', 'Commit done, pushing to remote')
+        setTimeout(() => {
+          agent.writeFn?.('git push\r')
+        }, 500)
+        return
+      }
+    }
+  }
+
+  // --- Phase: PUSHING ---
+  // Wait for prompt after push finishes, then mark done
+  if (agent.phase === 'pushing') {
+    for (const readyRe of READY_PATTERNS) {
+      if (readyRe.test(clean)) {
+        agent.phase = 'done'
+        agent.buffer = ''
+        emitCoordinatorStatus(nodeId, 'done', 'Push complete')
         return
       }
     }

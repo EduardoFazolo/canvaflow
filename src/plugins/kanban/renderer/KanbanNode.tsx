@@ -9,6 +9,7 @@ import { getActiveWorkspace } from '../../../renderer/src/stores/workspaceStore'
 import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
 import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
 import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
+import { switchToView } from '../../../renderer/src/components/ViewLayer'
 
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
@@ -556,64 +557,83 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const cwd = workspace?.path
             if (!cwd) throw new Error('No active workspace')
 
-            // 1. Create the worktree
+            // 1. Create the worktree (auto-retry with suffix if branch name is taken)
             const baseBranch = config.branchFromMain ? 'main' : undefined
-            const worktreePath = await window.git.worktreeAdd(cwd, config.branchName, baseBranch)
+            let branchName = config.branchName
+            let worktreePath: string
+            try {
+              worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+            } catch {
+              // Branch name taken — append incrementing number
+              for (let i = 1; i <= 99; i++) {
+                branchName = `${config.branchName}-${i}`
+                try {
+                  worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+                  break
+                } catch {
+                  if (i === 99) throw new Error(`Could not create branch: ${config.branchName}`)
+                }
+              }
+              worktreePath = worktreePath!
+            }
 
             // 2. Create the canvas view tab
             const viewId = useViewStore.getState().createWorktreeView({
               worktreePath,
-              branchName: config.branchName,
+              branchName,
               sourceCardId: worktreeDrop.card.id,
             })
 
-            // 3. Move card to "In Progress"
+            // 3. Synchronously switch to the worktree view BEFORE creating nodes.
+            // This ensures loadWorkspace + setWorktreeCwd happen first,
+            // so new nodes go into the worktree's node map, not the main canvas.
+            switchToView(viewId)
+
+            // 4. Move card to "In Progress"
             moveCard(worktreeDrop.sourceColId, worktreeDrop.targetColId, worktreeDrop.card.id)
 
-            // 4. Close modal
+            // 5. Close modal
             setWorktreeDrop(null)
 
-            // 5. Spawn the agent in the new canvas (after a tick for view to mount)
-            setTimeout(async () => {
-              const nodeStore = useNodeStore.getState()
-              const prompt = worktreeDrop.card.description
-                ? `${worktreeDrop.card.title}\n\n${worktreeDrop.card.description}`
-                : worktreeDrop.card.title
+            // 6. Spawn the agent in the worktree canvas
+            const nodeStore = useNodeStore.getState()
+            const basePrompt = worktreeDrop.card.description
+              ? `${worktreeDrop.card.title}\n\n${worktreeDrop.card.description}`
+              : worktreeDrop.card.title
+            const prompt = basePrompt + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
-              if (config.agentId === 'claude') {
-                // Create the node first (this does NOT start the PTY —
-                // that only happens when the activation gate opens)
-                const newNode = nodeStore.add('claude', 100, 100, {
-                  cwd: worktreePath,
-                  claudeFlags: '--dangerously-skip-permissions',
-                })
+            if (config.agentId === 'claude') {
+              // Create the node — cwd is already set via worktreeCwd
+              const newNode = nodeStore.add('claude', 100, 100, {
+                cwd: worktreePath,
+                claudeFlags: '--dangerously-skip-permissions',
+              })
 
-                // Register with the main-process coordinator BEFORE
-                // activating. The coordinator hooks into pty.onData so
-                // it will see every byte from the very first instant.
-                await window.coordinator.register(newNode.id, prompt)
+              // Register with the main-process coordinator BEFORE
+              // activating. The coordinator hooks into pty.onData so
+              // it will see every byte from the very first instant.
+              await window.coordinator.register(newNode.id, prompt)
 
-                // NOW open the activation gate — PTY starts, coordinator
-                // is already listening. Zero race condition.
-                useActivationStore.getState().activateNow(newNode.id)
-                useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
-              } else if (config.agentId === 'orchestrate') {
-                const newNode = nodeStore.add('orchestrator', 100, 100, {
-                  task: worktreeDrop.card.title,
-                  status: 'idle',
-                  subagentIds: [],
-                })
-                useActivationStore.getState().activateNow(newNode.id)
-                useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
-                window.orchestrator.start(newNode.id, {
-                  task: worktreeDrop.card.title,
-                  markdown: prompt,
-                  worldX: 100,
-                  worldY: 100,
-                  workspacePath: worktreePath,
-                })
-              }
-            }, 100)
+              // NOW open the activation gate — PTY starts, coordinator
+              // is already listening. Zero race condition.
+              useActivationStore.getState().activateNow(newNode.id)
+              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
+            } else if (config.agentId === 'orchestrate') {
+              const newNode = nodeStore.add('orchestrator', 100, 100, {
+                task: worktreeDrop.card.title,
+                status: 'idle',
+                subagentIds: [],
+              })
+              useActivationStore.getState().activateNow(newNode.id)
+              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
+              window.orchestrator.start(newNode.id, {
+                task: worktreeDrop.card.title,
+                markdown: prompt,
+                worldX: 100,
+                worldY: 100,
+                workspacePath: worktreePath,
+              })
+            }
           }}
           onClose={() => setWorktreeDrop(null)}
         />
