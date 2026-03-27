@@ -9,6 +9,8 @@ export interface KanbanCard {
   id: string
   title: string
   description?: string
+  /** Rich content stored as TipTap JSON for markdown + images */
+  content?: object
 }
 
 export interface KanbanColumn {
