@@ -260,6 +260,7 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
       {/* Title bar with context menu */}
       <ContextMenu>
           <ContextMenuHandle
+            data-node-titlebar
             style={{
               height: 32,
               display: 'flex',

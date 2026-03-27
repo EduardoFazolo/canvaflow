@@ -6,7 +6,6 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useActivationStore } from '../stores/activationStore'
 import { NodePlaceholder } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
-import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
 
 declare global {
   namespace JSX {
@@ -478,8 +477,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     }
 
     const onIpcMessage = (e: any) => {
-      if (e.channel === 'canvas:double-tap') zoomFitNode(node.id)
-      if (e.channel === 'canvas:zoom-exit') zoomExit()
       if (e.channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = e.args[0] ?? {}
         const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()

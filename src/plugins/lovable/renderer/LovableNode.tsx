@@ -5,7 +5,6 @@ import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
 import { useSessionStore } from '../../../renderer/src/stores/sessionStore'
 import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholder'
-import { zoomFitNode, zoomExit } from '../../../renderer/src/utils/zoomFocus'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 
 declare global {
@@ -502,11 +501,7 @@ export function LovableNode({ node }: Props): React.ReactElement {
 
     const onIpcMessage = (e: any) => {
       const { channel, args } = e
-      if (channel === 'canvas:double-tap') {
-        zoomFitNode(node.id)
-      } else if (channel === 'canvas:zoom-exit') {
-        zoomExit()
-      } else if (channel === 'canvas:wheel') {
+      if (channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = args[0]
         const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()
         if (!wvRect) return
