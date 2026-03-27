@@ -13,6 +13,17 @@ import { CardDetailModal } from './CardDetailModal'
 import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+// ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
 // ---------------------------------------------------------------------------
 
@@ -82,11 +93,28 @@ function CardItem({
           droppedInternally = false
           e.dataTransfer.effectAllowed = 'move'
           e.dataTransfer.setData('application/canvaflow-kanban-card', '')
+          // Create a popped drag image (scaled up with shadow)
           const el = e.currentTarget as HTMLElement
-          el.style.opacity = '0.4'
+          const clone = el.cloneNode(true) as HTMLElement
+          clone.style.transform = 'scale(1.05)'
+          clone.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1)'
+          clone.style.borderRadius = '6px'
+          clone.style.width = `${el.offsetWidth}px`
+          clone.style.position = 'fixed'
+          clone.style.top = '-9999px'
+          clone.style.left = '-9999px'
+          clone.style.zIndex = '99999'
+          document.body.appendChild(clone)
+          e.dataTransfer.setDragImage(clone, e.nativeEvent.offsetX, e.nativeEvent.offsetY)
+          requestAnimationFrame(() => document.body.removeChild(clone))
+          el.style.opacity = '0.3'
+          el.style.transform = 'scale(0.97)'
+          el.style.transition = 'opacity 0.15s, transform 0.15s'
         }}
         onDragEnd={(e) => {
-          (e.currentTarget as HTMLElement).style.opacity = '1'
+          const el = e.currentTarget as HTMLElement
+          el.style.opacity = '1'
+          el.style.transform = 'scale(1)'
           if (!droppedInternally && e.clientX > 0 && e.clientY > 0) {
             onExternalDrop(card, e.clientX, e.clientY)
           }
@@ -1214,14 +1242,23 @@ function Column({
         flex: '1 0 240px',
         display: 'flex',
         flexDirection: 'column',
-        background: dropHighlight ? 'rgba(255,255,255,0.03)' : '#141414',
+        background: dropHighlight ? hexToRgba(column.color, 0.07) : '#141414',
         borderRadius: 8,
-        border: '1px solid rgba(255,255,255,0.06)',
+        border: dropHighlight
+          ? `1px solid ${hexToRgba(column.color, 0.3)}`
+          : '1px solid rgba(255,255,255,0.06)',
         overflow: 'hidden',
-        transition: 'background 0.12s',
+        transition: 'background 0.18s ease-out, border-color 0.18s ease-out',
       }}
     >
-      <div style={{ height: 3, background: column.color, borderRadius: '8px 8px 0 0', flexShrink: 0 }} />
+      <div style={{
+        height: dropHighlight ? 4 : 3,
+        background: column.color,
+        borderRadius: '8px 8px 0 0',
+        flexShrink: 0,
+        boxShadow: dropHighlight ? `0 0 8px ${hexToRgba(column.color, 0.5)}` : 'none',
+        transition: 'height 0.18s ease-out, box-shadow 0.18s ease-out',
+      }} />
 
       <ColumnHeader
         column={column}
