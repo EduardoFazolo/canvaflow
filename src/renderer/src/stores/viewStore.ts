@@ -22,6 +22,8 @@ export interface ViewInstance {
   sourceCardId?: string
   agentStatus?: AgentStatus
   agentNodeId?: string
+  /** The workspace this view belongs to (worktree tabs only show in their parent workspace) */
+  parentWorkspaceId?: string
 }
 
 interface ViewStore {
@@ -34,6 +36,7 @@ interface ViewStore {
     worktreePath: string
     branchName: string
     sourceCardId: string
+    parentWorkspaceId: string
   }) => string
   updateAgentStatus: (viewId: string, status: AgentStatus, agentNodeId?: string) => void
   getViewByNodeId: (nodeId: string) => ViewInstance | undefined
@@ -72,7 +75,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
     set({ instances: remaining, activeId: newActiveId })
   },
 
-  createWorktreeView: ({ worktreePath, branchName, sourceCardId }) => {
+  createWorktreeView: ({ worktreePath, branchName, sourceCardId, parentWorkspaceId }) => {
     const viewId = `wt-${branchName}-${Date.now()}`
     const instance: ViewInstance = {
       id: viewId,
@@ -83,6 +86,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       branchName,
       sourceCardId,
       agentStatus: 'idle',
+      parentWorkspaceId,
     }
     set((s) => {
       const newInstances = [...s.instances, instance]

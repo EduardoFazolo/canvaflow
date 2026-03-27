@@ -1,5 +1,7 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { useViewStore, type ViewInstance } from '../stores/viewStore'
+import { useWorkspaceStore } from '../stores/workspaceStore'
+import { switchCanvas, getMainCanvasId } from '../stores/canvasManager'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
 
 export const VIEW_TABBAR_H = 28
@@ -82,6 +84,13 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_STYLE_ID))
 
 export function ViewTabBar(): React.ReactElement {
   const { instances, activeId, activate, close } = useViewStore()
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
+
+  // Only show tabs that belong to the current workspace (or have no parent = global tabs)
+  const visibleInstances = instances.filter((inst) =>
+    !inst.parentWorkspaceId || inst.parentWorkspaceId === activeWorkspaceId
+  )
+
 
   return (
     <div style={{
@@ -93,7 +102,7 @@ export function ViewTabBar(): React.ReactElement {
       flexShrink: 0,
       overflowX: 'auto',
     }}>
-      {instances.map((inst) => {
+      {visibleInstances.map((inst) => {
         const isActive = inst.id === activeId
         const isWorktree = !!inst.worktreePath
         const labelColor = isWorktree
@@ -104,7 +113,16 @@ export function ViewTabBar(): React.ReactElement {
         return (
           <div
             key={inst.id}
-            onClick={() => activate(inst.id)}
+            onClick={() => {
+              if (inst.type === 'canvas') {
+                const canvasId = inst.worktreePath ? inst.id : getMainCanvasId()
+                switchCanvas(canvasId)
+                window.browser.setCanvasActive(true)
+              } else {
+                window.browser.setCanvasActive(false)
+              }
+              activate(inst.id)
+            }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -157,7 +175,14 @@ export function ViewTabBar(): React.ReactElement {
 
             {inst.closeable && (
               <button
-                onClick={(e) => { e.stopPropagation(); close(inst.id) }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // If closing the active tab, switch canvas back to main BEFORE closing
+                  if (inst.id === activeId) {
+                    switchCanvas(getMainCanvasId())
+                  }
+                  close(inst.id)
+                }}
                 style={{
                   width: 13, height: 13,
                   border: 'none', background: 'transparent',

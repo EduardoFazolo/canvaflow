@@ -4,12 +4,11 @@ import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { ColorPicker } from '../../../renderer/src/components/ui/color-picker'
 import { useNodeStore, type NodeData } from '../../../renderer/src/stores/nodeStore'
 import { useViewStore } from '../../../renderer/src/stores/viewStore'
-import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { getActiveWorkspace } from '../../../renderer/src/stores/workspaceStore'
 import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
 import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
 import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
-import { switchToView } from '../../../renderer/src/components/ViewLayer'
+import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
@@ -577,54 +576,45 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               worktreePath = worktreePath!
             }
 
-            // 2. Create the canvas view tab
+            // 2. Create the canvas view tab (but DON'T let it auto-activate yet)
             const viewId = useViewStore.getState().createWorktreeView({
               worktreePath,
               branchName,
               sourceCardId: worktreeDrop.card.id,
+              parentWorkspaceId: workspaceId,
             })
+            const viewKey = viewId
 
-            // 3. Synchronously switch to the worktree view BEFORE creating nodes.
-            // This ensures loadWorkspace + setWorktreeCwd happen first,
-            // so new nodes go into the worktree's node map, not the main canvas.
-            switchToView(viewId)
+            // 3. Switch to the worktree canvas
+            switchCanvas(viewKey)
 
-            // 4. Move card to "In Progress"
+            // 4. Move card to "In Progress" (operates on kanban store, unaffected by node store)
             moveCard(worktreeDrop.sourceColId, worktreeDrop.targetColId, worktreeDrop.card.id)
 
             // 5. Close modal
             setWorktreeDrop(null)
 
-            // 6. Spawn the agent in the worktree canvas
-            const nodeStore = useNodeStore.getState()
+            // 6. Build the task prompt
             const basePrompt = worktreeDrop.card.description
               ? `${worktreeDrop.card.title}\n\n${worktreeDrop.card.description}`
               : worktreeDrop.card.title
             const prompt = basePrompt + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
+            // 7. Create the agent node EXPLICITLY in the worktree canvas
             if (config.agentId === 'claude') {
-              // Create the node — cwd is already set via worktreeCwd
-              const newNode = nodeStore.add('claude', 100, 100, {
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
                 cwd: worktreePath,
                 claudeFlags: '--dangerously-skip-permissions',
               })
 
-              // Register with the main-process coordinator BEFORE
-              // activating. The coordinator hooks into pty.onData so
-              // it will see every byte from the very first instant.
-              await window.coordinator.register(newNode.id, prompt)
-
-              // NOW open the activation gate — PTY starts, coordinator
-              // is already listening. Zero race condition.
-              useActivationStore.getState().activateNow(newNode.id)
+              window.coordinator.register(newNode.id, prompt)
               useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
             } else if (config.agentId === 'orchestrate') {
-              const newNode = nodeStore.add('orchestrator', 100, 100, {
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
                 task: worktreeDrop.card.title,
                 status: 'idle',
                 subagentIds: [],
               })
-              useActivationStore.getState().activateNow(newNode.id)
               useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
               window.orchestrator.start(newNode.id, {
                 task: worktreeDrop.card.title,

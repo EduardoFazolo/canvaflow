@@ -70,7 +70,9 @@ function createWindow(): void {
     else if (mod && input.shift && input.key === 'E') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newEditor') }
     else if (mod && input.shift && input.key === 'L') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newLovable') }
     else if (mod && input.shift && input.key === 'W') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newWindowPicker') }
-    else if (mod && input.alt && input.key === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.alt && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.shift && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (input.key === 'F12') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
 
   })
 

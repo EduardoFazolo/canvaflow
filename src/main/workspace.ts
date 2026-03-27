@@ -71,6 +71,12 @@ export function setupWorkspaceHandlers(): void {
 
   ipcMain.handle('app:setState', (_e, key: string, value: string) => setAppState(key, value))
 
+  // Synchronous variant for beforeunload — guarantees write completes before window closes
+  ipcMain.on('app:setStateSync', (event: IpcMainEvent, key: string, value: string) => {
+    try { setAppState(key, value) } catch {}
+    event.returnValue = null
+  })
+
   // -------------------------------------------------------------------------
   // Terminal state serialization (xterm scrollback → SQLite)
   // -------------------------------------------------------------------------

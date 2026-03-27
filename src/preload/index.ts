@@ -79,6 +79,9 @@ contextBridge.exposeInMainWorld('appState', {
 
   set: (key: string, value: string): Promise<void> =>
     ipcRenderer.invoke('app:setState', key, value),
+
+  setSync: (key: string, value: string): void =>
+    ipcRenderer.sendSync('app:setStateSync', key, value),
 })
 
 contextBridge.exposeInMainWorld('sessions', {
