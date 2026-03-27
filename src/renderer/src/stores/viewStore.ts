@@ -1,24 +1,66 @@
 import { create } from 'zustand'
+import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
+
+let viewSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistViews(instances: ViewInstance[]): void {
+  if (viewSaveTimer) clearTimeout(viewSaveTimer)
+  viewSaveTimer = setTimeout(() => {
+    const worktreeViews = instances.filter((i) => i.worktreePath)
+    window.appState.set('worktree_views', JSON.stringify(worktreeViews))
+  }, 400)
+}
+
+let closedViewSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistClosedViews(closedViews: ViewInstance[]): void {
+  if (closedViewSaveTimer) clearTimeout(closedViewSaveTimer)
+  closedViewSaveTimer = setTimeout(() => {
+    window.appState.set('closed_worktree_views', JSON.stringify(closedViews))
+  }, 400)
+}
 
 export interface ViewInstance {
   id: string
   type: string
   label: string
   closeable: boolean
+  // Worktree canvas fields
+  worktreePath?: string
+  branchName?: string
+  sourceCardId?: string
+  agentStatus?: AgentStatus
+  agentNodeId?: string
+  /** The workspace this view belongs to (worktree tabs only show in their parent workspace) */
+  parentWorkspaceId?: string
 }
 
 interface ViewStore {
   instances: ViewInstance[]
+  closedViews: ViewInstance[]
   activeId: string
   activate: (id: string) => void
   open: (instance: ViewInstance) => void
   close: (id: string) => void
+  createWorktreeView: (params: {
+    worktreePath: string
+    branchName: string
+    sourceCardId: string
+    parentWorkspaceId: string
+  }) => string
+  reopenClosedView: (viewId: string) => void
+  updateAgentStatus: (viewId: string, status: AgentStatus, agentNodeId?: string) => void
+  getViewByNodeId: (nodeId: string) => ViewInstance | undefined
+  getViewByCardId: (cardId: string) => ViewInstance | undefined
+  getClosedViewByCardId: (cardId: string) => ViewInstance | undefined
+  loadPersistedViews: () => Promise<void>
 }
 
 export const useViewStore = create<ViewStore>((set, get) => ({
   instances: [
     { id: 'canvas', type: 'canvas', label: 'Canvas', closeable: false },
   ],
+  closedViews: [],
   activeId: 'canvas',
 
   activate: (id) => {
@@ -34,7 +76,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   },
 
   close: (id) => {
-    const { instances, activeId } = get()
+    const { instances, activeId, closedViews } = get()
     const inst = instances.find((i) => i.id === id)
     if (!inst?.closeable) return
     const remaining = instances.filter((i) => i.id !== id)
@@ -42,6 +84,110 @@ export const useViewStore = create<ViewStore>((set, get) => ({
     const newActiveId = activeId === id
       ? (remaining[Math.max(0, idx - 1)]?.id ?? 'canvas')
       : activeId
+    persistViews(remaining)
+
+    // Track closed worktree views so they can be reopened from the kanban board
+    if (inst.worktreePath && inst.sourceCardId) {
+      const alreadyClosed = closedViews.some((v) => v.id === inst.id)
+      if (!alreadyClosed) {
+        const updated = [...closedViews, { ...inst, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }]
+        persistClosedViews(updated)
+        set({ instances: remaining, activeId: newActiveId, closedViews: updated })
+        return
+      }
+    }
+
     set({ instances: remaining, activeId: newActiveId })
+  },
+
+  createWorktreeView: ({ worktreePath, branchName, sourceCardId, parentWorkspaceId }) => {
+    const viewId = `wt-${branchName}-${Date.now()}`
+    const instance: ViewInstance = {
+      id: viewId,
+      type: 'canvas',
+      label: branchName,
+      closeable: true,
+      worktreePath,
+      branchName,
+      sourceCardId,
+      agentStatus: 'idle',
+      parentWorkspaceId,
+    }
+    set((s) => {
+      const newInstances = [...s.instances, instance]
+      persistViews(newInstances)
+      return { instances: newInstances, activeId: viewId }
+    })
+    return viewId
+  },
+
+  reopenClosedView: (viewId) => {
+    const { closedViews, instances } = get()
+    const view = closedViews.find((v) => v.id === viewId)
+    if (!view) return
+    // Already open?
+    if (instances.find((i) => i.id === viewId)) {
+      set({ activeId: viewId })
+      return
+    }
+    const restored: ViewInstance = {
+      ...view,
+      agentStatus: 'idle' as AgentStatus,
+      agentNodeId: undefined,
+    }
+    const updatedClosed = closedViews.filter((v) => v.id !== viewId)
+    persistClosedViews(updatedClosed)
+    const newInstances = [...instances, restored]
+    persistViews(newInstances)
+    set({ instances: newInstances, activeId: viewId, closedViews: updatedClosed })
+  },
+
+  updateAgentStatus: (viewId, status, agentNodeId) => {
+    set((s) => ({
+      instances: s.instances.map((inst) =>
+        inst.id === viewId
+          ? { ...inst, agentStatus: status, ...(agentNodeId ? { agentNodeId } : {}) }
+          : inst,
+      ),
+    }))
+  },
+
+  getViewByNodeId: (nodeId) => {
+    return get().instances.find((i) => i.agentNodeId === nodeId)
+  },
+
+  getViewByCardId: (cardId) => {
+    return get().instances.find((i) => i.sourceCardId === cardId)
+  },
+
+  getClosedViewByCardId: (cardId) => {
+    return get().closedViews.find((i) => i.sourceCardId === cardId)
+  },
+
+  loadPersistedViews: async () => {
+    try {
+      const raw = await window.appState.get('worktree_views')
+      if (raw) {
+        const views = JSON.parse(raw) as ViewInstance[]
+        const restored = views.map((v) => ({
+          ...v,
+          agentStatus: 'idle' as AgentStatus,
+          agentNodeId: undefined,
+        }))
+        if (restored.length > 0) {
+          set((s) => ({ instances: [...s.instances, ...restored] }))
+        }
+      }
+    } catch {}
+    // Also load closed worktree views
+    try {
+      const raw = await window.appState.get('closed_worktree_views')
+      if (raw) {
+        const closed = JSON.parse(raw) as ViewInstance[]
+        if (closed.length > 0) {
+          set({ closedViews: closed })
+        }
+      }
+    } catch {}
   },
 }))

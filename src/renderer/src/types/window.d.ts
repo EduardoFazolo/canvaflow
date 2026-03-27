@@ -261,6 +261,11 @@ declare global {
       checkoutBranch: (rootPath: string, name: string, createNew: boolean) => Promise<void>
       push: (rootPath: string) => Promise<{ error?: string }>
       remoteUrl: (rootPath: string) => Promise<string | null>
+      worktreeAdd: (rootPath: string, branchName: string, baseBranch?: string) => Promise<string>
+      worktreeRemove: (rootPath: string, worktreePath: string) => Promise<void>
+      worktreeList: (rootPath: string) => Promise<Array<{ path: string; head: string; branch: string }>>
+      checkMergeConflicts: (rootPath: string, branchName: string, targetBranch?: string) => Promise<{ hasConflicts: boolean; conflictingFiles: string[] }>
+      checkAllWorktreeConflicts: (rootPath: string, targetBranch?: string) => Promise<Record<string, string[]>>
     }
 
     fs: {

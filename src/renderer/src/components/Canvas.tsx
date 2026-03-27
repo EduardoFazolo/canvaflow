@@ -40,9 +40,10 @@ export function Canvas(): React.ReactElement {
     }, delay)
   }, [])
 
-  // Double-tap on a node (title bar / terminal content / any host-page area) to zoom-fit;
-  // double-tap again to zoom back out.
-  // Webview content (browser, notion) is handled via preload IPC instead (see zoomFocus.ts).
+  // Double-tap on a node's title bar to zoom-fit; double-tap again to zoom back out.
+  // Double-tap on empty canvas space to zoom out to fit all nodes.
+  // Only the title bar triggers zoom — double-tapping content areas allows normal
+  // text selection behavior.
   useEffect(() => {
     const tap = { lastTime: 0, lastNodeId: null as string | null }
 
@@ -50,6 +51,10 @@ export function Canvas(): React.ReactElement {
       if (e.button !== 0) return
       const canvas = rootRef.current
       if (!canvas) return
+      if ((e.target as HTMLElement).closest('[data-no-canvas-gesture]')) return
+
+      const now = Date.now()
+      const isDoubleTap = now - tap.lastTime < 350
 
       const rect = canvas.getBoundingClientRect()
       const { camera } = useCameraStore.getState()
@@ -66,19 +71,38 @@ export function Canvas(): React.ReactElement {
           if (node.zIndex > maxZ) { maxZ = node.zIndex; hitNode = node }
         }
       }
-      if (!hitNode) return
-      if ((e.target as HTMLElement).closest('[data-no-canvas-gesture]')) return
 
-      const now = Date.now()
-      const isDoubleTap = hitNode.id === tap.lastNodeId && now - tap.lastTime < 350
-      tap.lastTime = isDoubleTap ? 0 : now
+      // Double-tap on empty canvas → zoom out to fit all nodes
+      if (!hitNode) {
+        tap.lastNodeId = null
+        if (isDoubleTap) {
+          tap.lastTime = 0
+          zoomExit()
+        } else {
+          tap.lastTime = now
+        }
+        return
+      }
+
+      // Only allow zoom gesture when tapping the title bar area
+      const onTitleBar = !!(e.target as HTMLElement).closest('[data-node-titlebar]')
+      if (!onTitleBar) {
+        tap.lastTime = 0
+        tap.lastNodeId = null
+        return
+      }
+
+      const isSameNode = hitNode.id === tap.lastNodeId
       tap.lastNodeId = hitNode.id
-      if (!isDoubleTap) return
-
-      if (e.metaKey && e.shiftKey) {
-        zoomExit()
+      if (isDoubleTap && isSameNode) {
+        tap.lastTime = 0
+        if (e.metaKey && e.shiftKey) {
+          zoomExit()
+        } else {
+          zoomFitNode(hitNode.id)
+        }
       } else {
-        zoomFitNode(hitNode.id)
+        tap.lastTime = now
       }
     }
 
@@ -86,10 +110,15 @@ export function Canvas(): React.ReactElement {
     return () => document.removeEventListener('pointerdown', onPointerDown, { capture: true } as any)
   }, [])
 
-  // Attach wheel as non-passive so preventDefault works
+  // Attach wheel as non-passive so preventDefault works.
+  // Track zoom gesture state so releasing Cmd mid-scroll doesn't suddenly pan.
   useEffect(() => {
     const el = rootRef.current
     if (!el) return
+
+    let wasZooming = false
+    let gestureEndTimer: ReturnType<typeof setTimeout> | null = null
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       startCanvasInteraction()
@@ -98,10 +127,16 @@ export function Canvas(): React.ReactElement {
       const localX = e.clientX - rect.left
       const localY = e.clientY - rect.top
       const style = useSettingsStore.getState().settings.navStyle
+
+      if (gestureEndTimer) clearTimeout(gestureEndTimer)
+      gestureEndTimer = setTimeout(() => { wasZooming = false }, 60)
+
       if (style === 'trackpad') {
         zoomAt(localX, localY, e.deltaY)
       } else {
-        if (e.ctrlKey || e.metaKey) {
+        if (e.ctrlKey || e.metaKey) wasZooming = true
+
+        if (wasZooming) {
           zoomAt(localX, localY, e.deltaY)
         } else {
           pan(-e.deltaX, -e.deltaY)
@@ -110,7 +145,10 @@ export function Canvas(): React.ReactElement {
       scheduleCanvasInteractionEnd()
     }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      if (gestureEndTimer) clearTimeout(gestureEndTimer)
+    }
   }, [pan, scheduleCanvasInteractionEnd, startCanvasInteraction, zoomAt])
 
   const startPan = useCallback((e: React.PointerEvent) => {
@@ -224,9 +262,12 @@ export function Canvas(): React.ReactElement {
   }, [])
 
   const onDragOver = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/canvaflow-notion-page')) {
+    if (
+      e.dataTransfer.types.includes('application/canvaflow-notion-page') ||
+      e.dataTransfer.types.includes('application/canvaflow-kanban-card')
+    ) {
       e.preventDefault()
-      e.dataTransfer.dropEffect = 'copy'
+      e.dataTransfer.dropEffect = 'move'
     }
   }, [])
 

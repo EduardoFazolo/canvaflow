@@ -14,8 +14,8 @@ interface CameraStore {
   zoomByFactor: (factor: number) => void
 }
 
-export const MIN_ZOOM = 0.05
-const MAX_ZOOM = 5
+export const MIN_ZOOM = 0.1
+const MAX_ZOOM = 2
 const ZOOM_SPEED = 0.001
 
 // Last known cursor position in canvas-local coordinates.

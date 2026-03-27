@@ -11,6 +11,7 @@ import { trelloPlugin } from '../../plugins/trello'
 import { lovablePlugin } from '../../plugins/lovable'
 import { orchestratorPlugin, subagentPlugin } from '../../plugins/orchestrator'
 import { windowPickerPlugin } from '../../plugins/windowpicker'
+import { kanbanPlugin } from '../../plugins/kanban'
 
 // Register plugins before the app renders
 pluginRegistry.register(notionPlugin)
@@ -21,6 +22,7 @@ pluginRegistry.register(lovablePlugin)
 pluginRegistry.register(orchestratorPlugin)
 pluginRegistry.register(subagentPlugin)
 pluginRegistry.register(windowPickerPlugin)
+pluginRegistry.register(kanbanPlugin)
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

@@ -35,7 +35,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@shikijs/monaco": "^4.0.2",
     "@tailwindcss/vite": "^4.2.1",
-    "@tiptap/extension-image": "^3.20.4",
+    "@tiptap/extension-image": "^3.20.5",
     "@tiptap/pm": "^3.20.4",
     "@tiptap/react": "^3.20.4",
     "@tiptap/starter-kit": "^3.20.4",

@@ -11,14 +11,10 @@ import { registerTerminal, unregisterTerminal } from '../terminalRegistry'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivityStore } from '../stores/activityStore'
 import { useActivationStore } from '../stores/activationStore'
-import { NodePlaceholder } from './NodePlaceholder'
+import { ActivationFade } from './NodePlaceholder'
 import { normalizeClientPointForElement } from '../utils/terminalMouse'
 import { detectAgentStatusFromTerminalBuffer, detectAgentStatusFromTitle, sanitizeTerminalOutput } from '../../../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../../../modules/servers/agentic_signals/shared/debug'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 import '@xterm/xterm/css/xterm.css'
 
 interface Props {
@@ -105,7 +101,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   const renderInspectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const baseFontSizeRef = useRef<number>(13)
   const statusBufferRef = useRef('')
-  const { update, remove, bringToFront, sendToBack, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const focusedNodeIdRef = useRef(focusedNodeId)
   useEffect(() => { focusedNodeIdRef.current = focusedNodeId }, [focusedNodeId])
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
@@ -409,45 +405,44 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   }, [node.contentScale, node.id])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} noCssZoom>
           <div
             ref={containerRef}
             style={{ width: '100%', height: node.height - 32, padding: isActivated ? '6px 8px' : 0, boxSizing: 'border-box', position: 'relative' }}
-            onPointerDown={(e) => { useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+            onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
+            onContextMenu={async (e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const term = xtermRef.current
+              if (!term) return
+              const action = await (window as any).contextMenu.showTerminalMenu(term.hasSelection())
+              if (action === 'copy' && term.hasSelection()) {
+                navigator.clipboard.writeText(term.getSelection())
+              } else if (action === 'paste') {
+                const text = await navigator.clipboard.readText()
+                if (text) window.terminal.write(node.id, text)
+              } else if (action === 'selectAll') {
+                term.selectAll()
+              } else if (action === 'clear') {
+                term.clear()
+              }
+            }}
           >
-            {isActivated ? (
-              <>
-                {/* isolation: isolate contains xterm's internal z-indices so our overlay can sit above them */}
-                <div ref={termRef} style={{ width: '100%', height: '100%', isolation: 'isolate' }} />
-                {focusedNodeId !== node.id && (
-                  <div
-                    style={{ position: 'absolute', inset: 0, zIndex: 9999, cursor: 'text' }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation()
-                      setFocusedNodeId(node.id)
-                      setTimeout(() => xtermRef.current?.focus(), 0)
-                    }}
-                  />
-                )}
-              </>
-            ) : (
-              <NodePlaceholder icon="terminal" />
-            )}
+            <ActivationFade isActivated={isActivated} icon="terminal">
+              {/* isolation: isolate contains xterm's internal z-indices so our overlay can sit above them */}
+              <div ref={termRef} style={{ width: '100%', height: '100%', isolation: 'isolate' }} />
+              {focusedNodeId !== node.id && (
+                <div
+                  style={{ position: 'absolute', inset: 0, zIndex: 9999, cursor: 'text' }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    setFocusedNodeId(node.id)
+                    setTimeout(() => xtermRef.current?.focus(), 0)
+                  }}
+                />
+              )}
+            </ActivationFade>
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }

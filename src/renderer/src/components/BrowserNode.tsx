@@ -6,11 +6,6 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useActivationStore } from '../stores/activationStore'
 import { NodePlaceholder } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
-import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 
 declare global {
   namespace JSX {
@@ -294,7 +289,7 @@ interface Props {
 }
 
 export function BrowserNode({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, add, focusedNodeId, setFocusedNodeId } = useNodeStore()
+  const { update, add, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const webviewRef = useRef<any>(null)
   const webviewAreaRef = useRef<HTMLDivElement>(null)
@@ -482,8 +477,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
     }
 
     const onIpcMessage = (e: any) => {
-      if (e.channel === 'canvas:double-tap') zoomFitNode(node.id)
-      if (e.channel === 'canvas:zoom-exit') zoomExit()
       if (e.channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = e.args[0] ?? {}
         const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()
@@ -570,8 +563,6 @@ export function BrowserNode({ node }: Props): React.ReactElement {
   const webviewHeight = node.height - TITLE_H - TOOLBAR_H
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} titleExtra={(() => {
               const gh = parseGitHubRepo(urlBar)
               if (!gh) return null
@@ -741,7 +732,7 @@ export function BrowserNode({ node }: Props): React.ReactElement {
           <div
             ref={webviewAreaRef}
             style={{ width: '100%', height: webviewHeight, position: 'relative', overflow: 'hidden', background: isActivated ? '#ffffff' : '#0d0d0d' }}
-            onPointerDown={(e) => { useActivationStore.getState().activate(node.id); e.stopPropagation() }}
+            onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
             onDragOver={(e) => {
               if (e.dataTransfer.types.includes('application/canvaflow-session')) {
                 e.preventDefault()
@@ -791,18 +782,5 @@ export function BrowserNode({ node }: Props): React.ReactElement {
             )}
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }

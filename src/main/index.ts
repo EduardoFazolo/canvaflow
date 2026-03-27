@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, session, Menu, WebContents } from 'electron'
+import { app, BrowserWindow, ipcMain, session, Menu, WebContents, shell, clipboard } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions } from './pty'
+import { setupCoordinatorHandlers } from './agentCoordinator'
 import { initDatabase, getAllNodeIds } from './database'
 import { setupWorkspaceHandlers } from './workspace'
 import { startAgentSignalServer } from '../modules/servers/agentic_signals/main/server'
@@ -72,7 +73,9 @@ function createWindow(): void {
     else if (mod && input.shift && input.key === 'E') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newEditor') }
     else if (mod && input.shift && input.key === 'L') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newLovable') }
     else if (mod && input.shift && input.key === 'W') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newWindowPicker') }
-    else if (mod && input.alt && input.key === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.alt && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.shift && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (input.key === 'F12') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
 
   })
 
@@ -89,6 +92,7 @@ function createWindow(): void {
   }
 
   setupPtyHandlers(() => mainWindow?.webContents ?? null)
+  setupCoordinatorHandlers(() => mainWindow?.webContents ?? null)
   startAgentSignalServer(() => mainWindow?.webContents ?? null)
 
   // Apply session setup to every webview that attaches (covers named sessions too)
@@ -191,8 +195,96 @@ app.whenReady().then(async () => {
   // Set up default browser session
   setupBrowserSession(session.fromPartition('persist:canvaflow-ws-default'))
 
+  // Terminal context menu — returns the clicked action so the renderer can act on it
+  ipcMain.handle('contextMenu:showTerminalMenu', (_event, hasSelection: boolean) => {
+    return new Promise<string | null>((resolve) => {
+      const menu = Menu.buildFromTemplate([
+        { label: 'Copy', enabled: hasSelection, click: () => resolve('copy') },
+        { label: 'Paste', click: () => resolve('paste') },
+        { type: 'separator' },
+        { label: 'Select All', click: () => resolve('selectAll') },
+        { label: 'Clear', click: () => resolve('clear') },
+      ])
+      menu.popup({ callback: () => resolve(null) })
+    })
+  })
+
   createWindow()
   buildAppMenu()
+
+  // Native right-click context menu with full browser-like options.
+  // Only shown when the renderer doesn't prevent the contextmenu event
+  // (i.e. right-clicks inside node content like terminals/browsers).
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('context-menu', (_e, params) => {
+      const items: Electron.MenuItemConstructorOptions[] = []
+
+      // Link options
+      if (params.linkURL) {
+        items.push(
+          { label: 'Open Link', click: () => shell.openExternal(params.linkURL) },
+          { label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) },
+          { type: 'separator' },
+        )
+      }
+
+      // Image options
+      if (params.mediaType === 'image') {
+        items.push(
+          { label: 'Open Image in Browser', click: () => shell.openExternal(params.srcURL) },
+          { label: 'Copy Image', click: () => contents.copyImageAt(params.x, params.y) },
+          { label: 'Copy Image Address', click: () => clipboard.writeText(params.srcURL) },
+          { type: 'separator' },
+        )
+      }
+
+      // Video/audio options
+      if (params.mediaType === 'video' || params.mediaType === 'audio') {
+        items.push(
+          { label: 'Open Media in Browser', click: () => shell.openExternal(params.srcURL) },
+          { label: 'Copy Media Address', click: () => clipboard.writeText(params.srcURL) },
+          { type: 'separator' },
+        )
+      }
+
+      // Text editing options
+      if (params.isEditable) {
+        items.push(
+          { role: 'undo', enabled: params.editFlags.canUndo },
+          { role: 'redo', enabled: params.editFlags.canRedo },
+          { type: 'separator' },
+        )
+      }
+
+      // Standard clipboard actions
+      items.push(
+        { role: 'cut', enabled: params.editFlags.canCut },
+        { role: 'copy', enabled: params.editFlags.canCopy },
+        { role: 'paste', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: params.editFlags.canSelectAll },
+      )
+
+      // Navigation (for webviews)
+      if (params.pageURL && params.pageURL !== contents.getURL()) {
+        items.push(
+          { type: 'separator' },
+          { label: 'Back', enabled: contents.canGoBack(), click: () => contents.goBack() },
+          { label: 'Forward', enabled: contents.canGoForward(), click: () => contents.goForward() },
+          { label: 'Reload', click: () => contents.reload() },
+        )
+      }
+
+      // Inspect Element (dev tools)
+      items.push(
+        { type: 'separator' },
+        { label: 'Inspect Element', click: () => contents.inspectElement(params.x, params.y) },
+      )
+
+      Menu.buildFromTemplate(items).popup()
+    })
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()

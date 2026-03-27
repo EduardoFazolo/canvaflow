@@ -1,13 +1,93 @@
-import { unlink } from 'fs/promises'
-import { join } from 'path'
+import { readFile, readdir, symlink, mkdir, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
+import { join, dirname } from 'path'
 import simpleGit from 'simple-git'
 import type { IpcMainLike } from '../../types'
+
+export interface WorktreeEntry {
+  path: string
+  head: string
+  branch: string
+}
 
 const gitCache = new Map<string, ReturnType<typeof simpleGit>>()
 
 function git(rootPath: string) {
   if (!gitCache.has(rootPath)) gitCache.set(rootPath, simpleGit(rootPath))
   return gitCache.get(rootPath)!
+}
+
+/**
+ * Symlink gitignored files/directories from the original repo into a worktree.
+ * If .worktreeinclude exists, only those patterns are linked; otherwise all
+ * top-level gitignored items are linked (skipping common junk).
+ */
+async function symlinkGitignoredFiles(
+  rootPath: string,
+  worktreePath: string,
+  g: ReturnType<typeof simpleGit>,
+): Promise<void> {
+  try {
+    const includeFile = join(rootPath, '.worktreeinclude')
+    let items: string[] = []
+
+    if (existsSync(includeFile)) {
+      const content = await readFile(includeFile, 'utf-8')
+      const patterns = content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+      // Expand glob-like patterns by listing matching files in rootPath
+      for (const pattern of patterns) {
+        // Simple: treat each pattern as a literal path (covers .env, node_modules, prisma/generated, etc.)
+        if (existsSync(join(rootPath, pattern))) {
+          items.push(pattern)
+        }
+      }
+    } else {
+      // Fallback: get all top-level gitignored items
+      const skipRe = /^\.(claude|venv|pythonenv|idea|vscode|DS_Store)|^(bin|lib|__pycache__)$/
+      try {
+        const output = await g.raw(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'])
+        const seen = new Set<string>()
+        for (const line of output.split('\n')) {
+          const item = line.replace(/\/$/, '').trim()
+          if (!item) continue
+          // Only top-level entries
+          const topLevel = item.split('/')[0]
+          if (seen.has(topLevel)) continue
+          seen.add(topLevel)
+          if (skipRe.test(topLevel)) continue
+          items.push(topLevel)
+        }
+      } catch { /* ignore */ }
+    }
+
+    for (const item of items) {
+      const original = join(rootPath, item)
+      const target = join(worktreePath, item)
+      if (!existsSync(original) || existsSync(target)) continue
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(original, target)
+    }
+  } catch { /* non-fatal — worktree still usable, just missing some files */ }
+}
+
+/** Parse merge-tree output to extract conflicting files (exported for testing) */
+export function parseMergeTreeConflicts(output: string): string[] {
+  const files: string[] = []
+  const seen = new Set<string>()
+  for (const line of output.split('\n')) {
+    const conflictMatch = line.match(/CONFLICT.*?:\s*Merge conflict in (.+)/)
+    if (conflictMatch) {
+      const f = conflictMatch[1].trim()
+      if (!seen.has(f)) { seen.add(f); files.push(f) }
+      continue
+    }
+    const rawMatch = line.match(/^\d{6}\s+[0-9a-f]+\s+[123]\t(.+)/)
+    if (rawMatch) {
+      const f = rawMatch[1].trim()
+      if (!seen.has(f)) { seen.add(f); files.push(f) }
+    }
+  }
+  return files
 }
 
 export function registerGitHandlers(ipc: IpcMainLike): void {
@@ -167,5 +247,120 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
         }
       })
     } catch { return [] }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Git Worktree handlers
+  // ---------------------------------------------------------------------------
+
+  ipc.handle('git:wt:add', async (_e, rootPath: string, branchName: string, baseBranch?: string): Promise<string> => {
+    const g = git(rootPath)
+
+    // Find a unique branch name: append -1, -2, etc. if it already exists
+    let finalName = branchName
+    let suffix = 1
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        await g.raw(['rev-parse', '--verify', `refs/heads/${finalName}`])
+        // Branch exists — try next suffix
+        finalName = `${branchName}-${suffix++}`
+      } catch {
+        break // Branch doesn't exist, we can use it
+      }
+    }
+
+    const worktreePath = join(rootPath, '.worktrees', finalName)
+    const args = ['worktree', 'add', '-b', finalName, worktreePath]
+    if (baseBranch) args.push(baseBranch)
+    await g.raw(args)
+
+    // Symlink gitignored files so the worktree is runnable immediately
+    await symlinkGitignoredFiles(rootPath, worktreePath, g)
+
+    return worktreePath
+  })
+
+  ipc.handle('git:wt:remove', async (_e, rootPath: string, worktreePath: string): Promise<void> => {
+    await git(rootPath).raw(['worktree', 'remove', worktreePath, '--force'])
+  })
+
+  ipc.handle('git:wt:list', async (_e, rootPath: string): Promise<WorktreeEntry[]> => {
+    try {
+      const result = await git(rootPath).raw(['worktree', 'list', '--porcelain'])
+      const worktrees: WorktreeEntry[] = []
+      const blocks = result.trim().split('\n\n')
+      for (const block of blocks) {
+        const lines = block.split('\n')
+        const wt: Partial<WorktreeEntry> = {}
+        for (const line of lines) {
+          if (line.startsWith('worktree ')) wt.path = line.slice(9)
+          if (line.startsWith('HEAD ')) wt.head = line.slice(5)
+          if (line.startsWith('branch ')) wt.branch = line.slice(7).replace('refs/heads/', '')
+        }
+        if (wt.path && wt.head && wt.branch) worktrees.push(wt as WorktreeEntry)
+      }
+      return worktrees
+    } catch { return [] }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Merge conflict detection
+  // ---------------------------------------------------------------------------
+
+  /** Run merge-tree and return conflicting files (empty array if clean merge) */
+  async function detectConflicts(g: ReturnType<typeof simpleGit>, targetBranch: string, branch: string): Promise<string[]> {
+    try {
+      // simple-git raw() resolves even on non-zero exit for merge-tree
+      const output = await g.raw(['merge-tree', '--write-tree', targetBranch, branch])
+      return parseMergeTreeConflicts(output)
+    } catch {
+      // merge-tree not available — fallback to diff overlap heuristic
+      try {
+        const mergeBase = await g.raw(['merge-base', targetBranch, branch])
+        const base = mergeBase.trim()
+        if (!base) return []
+        const targetDiff = await g.raw(['diff', '--name-only', base, targetBranch])
+        const branchDiff = await g.raw(['diff', '--name-only', base, branch])
+        const targetFiles = new Set(targetDiff.trim().split('\n').filter(Boolean))
+        return branchDiff.trim().split('\n').filter(Boolean).filter(f => targetFiles.has(f))
+      } catch {
+        return []
+      }
+    }
+  }
+
+  ipc.handle('git:checkMergeConflicts', async (
+    _e,
+    rootPath: string,
+    branchName: string,
+    targetBranch = 'main',
+  ): Promise<{ hasConflicts: boolean; conflictingFiles: string[] }> => {
+    const files = await detectConflicts(git(rootPath), targetBranch, branchName)
+    return { hasConflicts: files.length > 0, conflictingFiles: files }
+  })
+
+  ipc.handle('git:checkAllWorktreeConflicts', async (
+    _e,
+    rootPath: string,
+    targetBranch = 'main',
+  ): Promise<Record<string, string[]>> => {
+    const g = git(rootPath)
+    const conflicts: Record<string, string[]> = {}
+    try {
+      const result = await g.raw(['worktree', 'list', '--porcelain'])
+      const blocks = result.trim().split('\n\n')
+      for (const block of blocks) {
+        const lines = block.split('\n')
+        let branch = ''
+        for (const line of lines) {
+          if (line.startsWith('branch ')) branch = line.slice(7).replace('refs/heads/', '')
+        }
+        if (!branch || branch === targetBranch) continue
+        const files = await detectConflicts(g, targetBranch, branch)
+        if (files.length > 0) conflicts[branch] = files
+      }
+    } catch { /* no worktrees */ }
+    return conflicts
   })
 }

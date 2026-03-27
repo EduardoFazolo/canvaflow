@@ -79,6 +79,9 @@ contextBridge.exposeInMainWorld('appState', {
 
   set: (key: string, value: string): Promise<void> =>
     ipcRenderer.invoke('app:setState', key, value),
+
+  setSync: (key: string, value: string): void =>
+    ipcRenderer.sendSync('app:setStateSync', key, value),
 })
 
 contextBridge.exposeInMainWorld('sessions', {
@@ -127,6 +130,18 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:checkoutBranch', rootPath, name, createNew),
   remoteUrl: (rootPath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:remoteUrl', rootPath),
+
+  worktreeAdd: (rootPath: string, branchName: string, baseBranch?: string): Promise<string> =>
+    ipcRenderer.invoke('git:wt:add', rootPath, branchName, baseBranch),
+  worktreeRemove: (rootPath: string, worktreePath: string): Promise<void> =>
+    ipcRenderer.invoke('git:wt:remove', rootPath, worktreePath),
+  worktreeList: (rootPath: string): Promise<Array<{ path: string; head: string; branch: string }>> =>
+    ipcRenderer.invoke('git:wt:list', rootPath),
+
+  checkMergeConflicts: (rootPath: string, branchName: string, targetBranch?: string): Promise<{ hasConflicts: boolean; conflictingFiles: string[] }> =>
+    ipcRenderer.invoke('git:checkMergeConflicts', rootPath, branchName, targetBranch),
+  checkAllWorktreeConflicts: (rootPath: string, targetBranch?: string): Promise<Record<string, string[]>> =>
+    ipcRenderer.invoke('git:checkAllWorktreeConflicts', rootPath, targetBranch),
 })
 
 contextBridge.exposeInMainWorld('fs', {
@@ -195,6 +210,25 @@ contextBridge.exposeInMainWorld('maestro', {
     ipcRenderer.invoke('maestro:mouse-get-pos'),
   keyToggle: (key: string, down: boolean): Promise<void> =>
     ipcRenderer.invoke('maestro:key-toggle', key, down),
+})
+
+contextBridge.exposeInMainWorld('coordinator', {
+  register: (nodeId: string, task: string): Promise<void> =>
+    ipcRenderer.invoke('coordinator:register', nodeId, task),
+  unregister: (nodeId: string): Promise<void> =>
+    ipcRenderer.invoke('coordinator:unregister', nodeId),
+  getStatus: (): Promise<Array<{ nodeId: string; phase: string; taskSent: boolean }>> =>
+    ipcRenderer.invoke('coordinator:status'),
+  onStatus: (cb: (event: { nodeId: string; phase: string; message: string }) => void): (() => void) => {
+    const listener = (_: unknown, event: { nodeId: string; phase: string; message: string }) => cb(event)
+    ipcRenderer.on('coordinator:status', listener)
+    return () => ipcRenderer.removeListener('coordinator:status', listener)
+  },
+})
+
+contextBridge.exposeInMainWorld('contextMenu', {
+  showTerminalMenu: (hasSelection: boolean): Promise<string | null> =>
+    ipcRenderer.invoke('contextMenu:showTerminalMenu', hasSelection),
 })
 
 contextBridge.exposeInMainWorld('browser', {

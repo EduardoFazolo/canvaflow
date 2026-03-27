@@ -1,6 +1,7 @@
 import React from 'react'
 import { Canvas } from '../components/Canvas'
 import { GitOverlay } from '../components/GitOverlay'
+import { ZoomIndicator } from '../components/ZoomIndicator'
 
 export function CanvasView(): React.ReactElement {
   return (
@@ -10,6 +11,7 @@ export function CanvasView(): React.ReactElement {
     >
       <Canvas />
       <GitOverlay />
+      <ZoomIndicator />
     </div>
   )
 }

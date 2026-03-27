@@ -6,6 +6,7 @@ export interface BrowserSnapshotHandoff {
   screenshotVisible: boolean
   nextFreezeRequestId: number
   activeFreezeRequestId: number | null
+  screenshotStale: boolean
 }
 
 export interface BrowserFreezeTransition {
@@ -26,6 +27,7 @@ export function createBrowserSnapshotHandoff(): BrowserSnapshotHandoff {
     screenshotVisible: false,
     nextFreezeRequestId: 1,
     activeFreezeRequestId: null,
+    screenshotStale: false,
   }
 }
 
@@ -75,11 +77,14 @@ export function resolveBrowserFreeze(
     }
   }
 
+  const screenshot = handoff.screenshotStale && result.dataUrl ? result.dataUrl : handoff.screenshot
   return {
     ...handoff,
     handoffState: 'frozen',
     activeFreezeRequestId: null,
-    screenshotVisible: Boolean(handoff.screenshot),
+    screenshot,
+    screenshotVisible: Boolean(screenshot),
+    screenshotStale: false,
   }
 }
 
@@ -88,6 +93,7 @@ export function showBrowserLive(handoff: BrowserSnapshotHandoff): BrowserSnapsho
     ...handoff,
     handoffState: 'live',
     activeFreezeRequestId: null,
+    screenshotStale: true,
   }
 }
 

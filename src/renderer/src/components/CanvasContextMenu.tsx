@@ -27,6 +27,10 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
   return (
     <ContextMenu>
       <ContextMenuTrigger
+        shouldOpen={(e: React.MouseEvent) => {
+          // Don't open canvas menu when right-clicking inside a node — let native context menu through
+          return !(e.target as HTMLElement).closest?.('[data-node-id]')
+        }}
         onContextMenu={(e: React.MouseEvent) => {
           const camera = useCameraStore.getState().camera
           clickWorldPos.current = screenToWorld(e.clientX, e.clientY, camera)
@@ -75,6 +79,9 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
         <ContextMenuItem onClick={() => addAndFocus('windowpicker', 240, 200)}>
           <span style={{ flex: 1 }}>New Window Picker</span>
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧W</span>
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => addAndFocus('kanban', 490, 280)}>
+          New Kanban
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => fitAllNodes(useNodeStore.getState().nodes)}>

@@ -65,3 +65,59 @@ export function NodePlaceholder({ icon }: Props): React.ReactElement {
     </div>
   )
 }
+
+/**
+ * Wraps activated content with a smooth fade-in over the placeholder.
+ * The placeholder stays underneath; the real content fades in on top.
+ * Once the transition completes, the placeholder unmounts.
+ */
+export function ActivationFade({
+  isActivated,
+  icon,
+  children,
+}: {
+  isActivated: boolean
+  icon: keyof typeof icons
+  children: React.ReactNode
+}): React.ReactElement {
+  const [showPlaceholder, setShowPlaceholder] = React.useState(!isActivated)
+  const [opacity, setOpacity] = React.useState(isActivated ? 1 : 0)
+
+  React.useEffect(() => {
+    if (isActivated) {
+      // Trigger fade-in on next frame so the transition kicks in
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setOpacity(1)
+        })
+      })
+      // Remove placeholder after transition
+      const timer = setTimeout(() => setShowPlaceholder(false), 500)
+      return () => clearTimeout(timer)
+    }
+  }, [isActivated])
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {showPlaceholder && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+          <NodePlaceholder icon={icon} />
+        </div>
+      )}
+      {isActivated && (
+        <div
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            zIndex: 1,
+            opacity,
+            transition: 'opacity 0.4s ease-out',
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}

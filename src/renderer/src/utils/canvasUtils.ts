@@ -7,10 +7,12 @@ export interface NodeRect {
   y: number
   width: number
   height: number
+  minimized?: boolean
 }
 
 const FIT_PADDING = 20
-const FIT_MAX_ZOOM = 2.0
+const FIT_MAX_ZOOM = 1.5
+const MINIMIZED_HEIGHT = 32
 
 /** Returns the canvas content area dimensions, excluding sidebar and title/tab bars. */
 export function getCanvasRect(): { width: number; height: number } {
@@ -35,7 +37,7 @@ export function computeFitCamera(
   const minX = Math.min(...all.map(n => n.x))
   const minY = Math.min(...all.map(n => n.y))
   const maxX = Math.max(...all.map(n => n.x + n.width))
-  const maxY = Math.max(...all.map(n => n.y + n.height))
+  const maxY = Math.max(...all.map(n => n.y + (n.minimized ? MINIMIZED_HEIGHT : n.height)))
   const contentW = maxX - minX + FIT_PADDING * 2
   const contentH = maxY - minY + FIT_PADDING * 2
   const zoom = Math.max(MIN_ZOOM, Math.min(viewportWidth / contentW, viewportHeight / contentH, FIT_MAX_ZOOM))

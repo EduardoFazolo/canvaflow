@@ -4,9 +4,8 @@ import { BaseNode } from './BaseNode'
 import { useCameraStore } from '../stores/cameraStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useActivationStore } from '../stores/activationStore'
-import { NodePlaceholder } from './NodePlaceholder'
+import { NodePlaceholder, ActivationFade } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
-import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
 import { useCanvasViewportStore } from '../stores/canvasViewportStore'
 import {
   beginBrowserFreeze,
@@ -17,13 +16,49 @@ import {
   showBrowserLive,
 } from '../utils/browserSnapshotHandoff'
 import { onCanvasInteractionEnd, onCanvasInteractionStart } from '../utils/canvasInteraction'
-import {
-  ContextMenu, ContextMenuTrigger, ContextMenuContent,
-  ContextMenuItem, ContextMenuSeparator, ContextMenuSub
-} from './ui/context-menu'
 
 const TITLE_H = 32
 const TOOLBAR_H = 36
+
+/** Placeholder that fades out when the browser view becomes active underneath */
+function BrowserPlaceholderFade({ isActivated }: { isActivated: boolean }): React.ReactElement | null {
+  const [visible, setVisible] = React.useState(true)
+  const [opacity, setOpacity] = React.useState(1)
+
+  React.useEffect(() => {
+    if (isActivated) {
+      // Small delay to let the native view appear, then fade the placeholder out
+      const fadeTimer = setTimeout(() => setOpacity(0), 200)
+      const removeTimer = setTimeout(() => setVisible(false), 700)
+      return () => { clearTimeout(fadeTimer); clearTimeout(removeTimer) }
+    }
+  }, [isActivated])
+
+  if (!visible) return null
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 2,
+        background: '#0d0d0d',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        color: 'rgba(255,255,255,0.12)',
+        userSelect: 'none',
+        pointerEvents: isActivated ? 'none' : 'auto',
+        opacity,
+        transition: 'opacity 0.4s ease-out',
+      }}
+    >
+      <NodePlaceholder icon="browser" />
+    </div>
+  )
+}
 
 function getPartition(sessionId: string | undefined, nodeId: string): string {
   if (!sessionId || sessionId === 'default') return 'persist:canvaflow-ws-default'
@@ -291,7 +326,7 @@ interface Props {
 }
 
 export function BrowserNodeV2({ node }: Props): React.ReactElement {
-  const { update, remove, bringToFront, sendToBack, add, setFocusedNodeId } = useNodeStore()
+  const { update, add, setFocusedNodeId } = useNodeStore()
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
   const isFocused = useNodeStore((s) => s.focusedNodeId === node.id)
   const isActiveWorkspace = useNodeStore((s) =>
@@ -543,10 +578,11 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   }, [showLiveView])
 
   // ---------------------------------------------------------------------------
-  // Lifecycle: create / destroy WebContentsView
+  // Lifecycle: create / destroy WebContentsView (gated on activation queue)
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    if (!isActivated) return
     const { left: vpLeft, top: vpTop } = useCanvasViewportStore.getState()
     const bounds = getBounds() ?? { x: vpLeft, y: vpTop, width: Math.round(node.width), height: Math.round(node.height - TITLE_H - TOOLBAR_H) }
     window.browser.create(node.id, partition, webviewSrcRef.current, bounds).then(() => {
@@ -556,7 +592,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
       window.browser.destroy(node.id)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally mount/unmount only
+  }, [isActivated]) // create when activated, destroy on unmount
 
   useEffect(() => {
     return () => {
@@ -747,7 +783,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
         const url = (data as any).url as string
         if (url) add('browserv2', node.x + 40, node.y + 40, { url })
       } else if (eventName === 'focus') {
-        useActivationStore.getState().activate(node.id)
+        useActivationStore.getState().activateNow(node.id)
         setFocusedNodeId(node.id)
       }
     })
@@ -761,8 +797,6 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   useEffect(() => {
     const unsub = window.browser.onCanvasEvent((eventNodeId, channel, data) => {
       if (eventNodeId !== node.id) return
-      if (channel === 'canvas:double-tap') zoomFitNode(node.id)
-      if (channel === 'canvas:zoom-exit') zoomExit()
       if (channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = data as any
         const wvRect = webviewAreaRef.current?.getBoundingClientRect()
@@ -892,8 +926,6 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   }, [node.id, update])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
         <BaseNode node={node} noCssZoom titleExtra={(() => {
               const gh = parseGitHubRepo(urlBar)
               const isLovable = urlBar.includes('lovable.dev')
@@ -1058,7 +1090,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               sessionId={sessionId}
               nodeId={node.id}
               onChange={handleSessionChange}
-              onOpen={freeze}
+              onOpen={() => freeze({ forceHide: true })}
               onClose={scheduleUnfreeze}
             />
           </div>
@@ -1074,7 +1106,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               background: isFocused ? '#ffffff' : '#0d0d0d',
             }}
             onPointerDown={(e) => {
-              useActivationStore.getState().activate(node.id)
+              useActivationStore.getState().activateNow(node.id)
               setFocusedNodeId(node.id)
               e.stopPropagation()
             }}
@@ -1108,21 +1140,8 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', display: 'none', pointerEvents: 'none' }}
               alt=""
             />
-            {!isActivated && !hasScreenshot && <NodePlaceholder icon="browser" />}
+            {!hasScreenshot && <BrowserPlaceholderFade isActivated={isActivated} />}
           </div>
         </BaseNode>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent>
-        <ContextMenuSub trigger="Order">
-          <ContextMenuItem onClick={() => bringToFront(node.id)}>Bring to Front</ContextMenuItem>
-          <ContextMenuItem onClick={() => sendToBack(node.id)}>Send to Back</ContextMenuItem>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        <ContextMenuItem destructive onClick={() => remove(node.id)}>
-          Close
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }
