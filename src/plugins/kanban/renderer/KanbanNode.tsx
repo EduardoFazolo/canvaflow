@@ -8,6 +8,7 @@ import { getActiveWorkspace } from '../../../renderer/src/stores/workspaceStore'
 import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
 import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
 import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
+import { CardDetailModal } from './CardDetailModal'
 import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 
 // ---------------------------------------------------------------------------
@@ -46,9 +47,7 @@ function CardItem({
   onUpdate: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
 }): React.ReactElement {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(card.title)
-  const [descDraft, setDescDraft] = useState(card.description ?? '')
+  const [modalOpen, setModalOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
 
   // Check if this card has an active worktree view
@@ -56,206 +55,149 @@ function CardItem({
   // Check if this card has a closed (past) worktree view
   const closedView = useViewStore((s) => !worktreeView ? s.closedViews.find((i) => i.sourceCardId === card.id) : undefined)
 
-  const commit = useCallback(() => {
-    const trimmed = draft.trim()
-    if (trimmed) {
-      onUpdate(columnId, card.id, { title: trimmed, description: descDraft.trim() || undefined })
-    }
-    setEditing(false)
-  }, [draft, descDraft, columnId, card.id, onUpdate])
+  const hasContent = !!(card.content || card.description)
+  const hasImages = card.content ? JSON.stringify(card.content).includes('"type":"image"') : false
 
   return (
-    <div
-      draggable={!editing}
-      onDragStart={(e) => {
-        dragCardId = card.id
-        dragSourceColId = columnId
-        droppedInternally = false
-        e.dataTransfer.effectAllowed = 'move'
-        e.dataTransfer.setData('application/canvaflow-kanban-card', '')
-        const el = e.currentTarget as HTMLElement
-        el.style.opacity = '0.4'
-      }}
-      onDragEnd={(e) => {
-        (e.currentTarget as HTMLElement).style.opacity = '1'
-        if (!droppedInternally && e.clientX > 0 && e.clientY > 0) {
-          onExternalDrop(card, e.clientX, e.clientY)
-        }
-        dragCardId = null
-        dragSourceColId = null
-        droppedInternally = false
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={() => {
-        if (!editing && worktreeView) {
-          useViewStore.getState().activate(worktreeView.id)
-        }
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation()
-        setDraft(card.title)
-        setDescDraft(card.description ?? '')
-        setEditing(true)
-      }}
-      style={{
-        background: '#1a1a1a',
-        border: worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 6,
-        padding: '8px 10px',
-        cursor: editing ? 'text' : ((worktreeView || closedView) ? 'pointer' : 'grab'),
-        transition: 'border-color 0.12s, background 0.12s',
-        position: 'relative',
-        ...(hovered && !editing ? { borderColor: worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
-      }}
-    >
-      {editing ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commit()
-              if (e.key === 'Escape') setEditing(false)
-              e.stopPropagation()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 4,
-              color: '#e0e0e0',
-              fontSize: 12,
-              fontWeight: 600,
-              padding: '4px 6px',
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
-          />
-          <textarea
-            value={descDraft}
-            onChange={(e) => setDescDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditing(false)
-              e.stopPropagation()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            placeholder="Description (optional)"
-            rows={2}
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 4,
-              color: '#999',
-              fontSize: 11,
-              padding: '4px 6px',
-              outline: 'none',
-              fontFamily: 'inherit',
-              resize: 'vertical',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-            <button
-              onClick={commit}
-              onPointerDown={(e) => e.stopPropagation()}
-              style={{
-                fontSize: 10, padding: '2px 8px', borderRadius: 4,
-                background: 'rgba(255,255,255,0.08)', border: 'none',
-                color: '#aaa', cursor: 'pointer',
-              }}
-            >
-              Save
-            </button>
+    <>
+      {modalOpen && (
+        <CardDetailModal
+          card={card}
+          onUpdate={(patch) => onUpdate(columnId, card.id, patch)}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+      <div
+        draggable={!modalOpen}
+        onDragStart={(e) => {
+          dragCardId = card.id
+          dragSourceColId = columnId
+          droppedInternally = false
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('application/canvaflow-kanban-card', '')
+          const el = e.currentTarget as HTMLElement
+          el.style.opacity = '0.4'
+        }}
+        onDragEnd={(e) => {
+          (e.currentTarget as HTMLElement).style.opacity = '1'
+          if (!droppedInternally && e.clientX > 0 && e.clientY > 0) {
+            onExternalDrop(card, e.clientX, e.clientY)
+          }
+          dragCardId = null
+          dragSourceColId = null
+          droppedInternally = false
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={() => {
+          if (worktreeView) {
+            useViewStore.getState().activate(worktreeView.id)
+          }
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          setModalOpen(true)
+        }}
+        style={{
+          background: '#1a1a1a',
+          border: worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 6,
+          padding: '8px 10px',
+          cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
+          transition: 'border-color 0.12s, background 0.12s',
+          position: 'relative',
+          ...(hovered ? { borderColor: worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
+        }}
+      >
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <svg width="6" height="14" viewBox="0 0 6 14" style={{ opacity: hovered ? 0.3 : 0.12, flexShrink: 0, marginTop: 1, transition: 'opacity 0.15s' }}>
+            <circle cx="1.5" cy="2" r="1" fill="white" />
+            <circle cx="4.5" cy="2" r="1" fill="white" />
+            <circle cx="1.5" cy="7" r="1" fill="white" />
+            <circle cx="4.5" cy="7" r="1" fill="white" />
+            <circle cx="1.5" cy="12" r="1" fill="white" />
+            <circle cx="4.5" cy="12" r="1" fill="white" />
+          </svg>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#e0e0e0', lineHeight: 1.3 }}>
+              {card.title}
+            </div>
+            {hasContent && (
+              <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, wordBreak: 'break-word' }}>
+                {hasImages && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginRight: 4, color: 'rgba(167,139,250,0.5)' }}>
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><rect x="1" y="2" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.1"/><circle cx="4" cy="5" r="1" fill="currentColor"/><path d="M1 9l3-3 2 2 2-2 3 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </span>
+                )}
+                {card.description}
+              </div>
+            )}
           </div>
         </div>
-      ) : (
-        <>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <svg width="6" height="14" viewBox="0 0 6 14" style={{ opacity: hovered ? 0.3 : 0.12, flexShrink: 0, marginTop: 1, transition: 'opacity 0.15s' }}>
-              <circle cx="1.5" cy="2" r="1" fill="white" />
-              <circle cx="4.5" cy="2" r="1" fill="white" />
-              <circle cx="1.5" cy="7" r="1" fill="white" />
-              <circle cx="4.5" cy="7" r="1" fill="white" />
-              <circle cx="1.5" cy="12" r="1" fill="white" />
-              <circle cx="4.5" cy="12" r="1" fill="white" />
+
+        {/* Worktree agent status badge */}
+        {worktreeView && worktreeView.agentStatus && (
+          <div
+            title={`Agent: ${worktreeView.agentStatus}`}
+            style={{
+              position: 'absolute', top: 6, right: 6,
+              width: 8, height: 8, borderRadius: '50%',
+              background: BADGE_COLORS[worktreeView.agentStatus] || 'rgba(255,255,255,0.2)',
+              animation: (worktreeView.agentStatus === 'thinking' || worktreeView.agentStatus === 'executing' || worktreeView.agentStatus === 'modifying_files')
+                ? 'worktree-pulse 1.5s ease-in-out infinite' : undefined,
+            }}
+          />
+        )}
+
+        {/* Reopen past canvas button */}
+        {closedView && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              useViewStore.getState().reopenClosedView(closedView.id)
+              switchCanvas(closedView.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={`View canvas: ${closedView.branchName}`}
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 22, height: 22, borderRadius: 4,
+              background: hovered ? 'rgba(34,211,238,0.12)' : 'rgba(34,211,238,0.06)',
+              border: 'none', color: 'rgba(34,211,238,0.6)',
+              cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, lineHeight: 1,
+              transition: 'background 0.12s',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" />
+              <line x1="2" y1="6" x2="14" y2="6" />
+              <line x1="5.5" y1="3" x2="5.5" y2="6" />
             </svg>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#e0e0e0', lineHeight: 1.3 }}>
-                {card.title}
-              </div>
-              {card.description && (
-                <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {card.description}
-                </div>
-              )}
-            </div>
-          </div>
+          </button>
+        )}
 
-          {/* Worktree agent status badge */}
-          {worktreeView && worktreeView.agentStatus && (
-            <div
-              title={`Agent: ${worktreeView.agentStatus}`}
-              style={{
-                position: 'absolute', top: 6, right: worktreeView.agentStatus === 'done' ? 6 : 6,
-                width: 8, height: 8, borderRadius: '50%',
-                background: BADGE_COLORS[worktreeView.agentStatus] || 'rgba(255,255,255,0.2)',
-                animation: (worktreeView.agentStatus === 'thinking' || worktreeView.agentStatus === 'executing' || worktreeView.agentStatus === 'modifying_files')
-                  ? 'worktree-pulse 1.5s ease-in-out infinite' : undefined,
-              }}
-            />
-          )}
-
-          {/* Reopen past canvas button */}
-          {closedView && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                useViewStore.getState().reopenClosedView(closedView.id)
-                switchCanvas(closedView.id)
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              title={`View canvas: ${closedView.branchName}`}
-              style={{
-                position: 'absolute', top: 4, right: 4,
-                width: 22, height: 22, borderRadius: 4,
-                background: hovered ? 'rgba(34,211,238,0.12)' : 'rgba(34,211,238,0.06)',
-                border: 'none', color: 'rgba(34,211,238,0.6)',
-                cursor: 'pointer', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, lineHeight: 1,
-                transition: 'background 0.12s',
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="3" width="12" height="10" rx="1.5" />
-                <line x1="2" y1="6" x2="14" y2="6" />
-                <line x1="5.5" y1="3" x2="5.5" y2="6" />
-              </svg>
-            </button>
-          )}
-
-          {hovered && !worktreeView && !closedView && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
-              onPointerDown={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute', top: 4, right: 4,
-                width: 18, height: 18, borderRadius: 4,
-                background: 'rgba(255,255,255,0.06)',
-                border: 'none', color: 'rgba(255,255,255,0.3)',
-                cursor: 'pointer', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, lineHeight: 1,
-              }}
-              title="Delete card"
-            >
-              &times;
-            </button>
-          )}
-        </>
-      )}
-    </div>
+        {hovered && !worktreeView && !closedView && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 18, height: 18, borderRadius: 4,
+              background: 'rgba(255,255,255,0.06)',
+              border: 'none', color: 'rgba(255,255,255,0.3)',
+              cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, lineHeight: 1,
+            }}
+            title="Delete card"
+          >
+            &times;
+          </button>
+        )}
+      </div>
+    </>
   )
 }
 
