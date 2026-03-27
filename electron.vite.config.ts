@@ -36,5 +36,10 @@ export default defineConfig({
     optimizeDeps: {
       exclude: ['shiki'],
     },
+    server: {
+      fs: {
+        strict: false,
+      },
+    },
   }
 })

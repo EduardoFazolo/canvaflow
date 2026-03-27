@@ -11,6 +11,15 @@ function persistViews(instances: ViewInstance[]): void {
   }, 400)
 }
 
+let closedViewSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistClosedViews(closedViews: ViewInstance[]): void {
+  if (closedViewSaveTimer) clearTimeout(closedViewSaveTimer)
+  closedViewSaveTimer = setTimeout(() => {
+    window.appState.set('closed_worktree_views', JSON.stringify(closedViews))
+  }, 400)
+}
+
 export interface ViewInstance {
   id: string
   type: string
@@ -28,6 +37,7 @@ export interface ViewInstance {
 
 interface ViewStore {
   instances: ViewInstance[]
+  closedViews: ViewInstance[]
   activeId: string
   activate: (id: string) => void
   open: (instance: ViewInstance) => void
@@ -38,9 +48,11 @@ interface ViewStore {
     sourceCardId: string
     parentWorkspaceId: string
   }) => string
+  reopenClosedView: (viewId: string) => void
   updateAgentStatus: (viewId: string, status: AgentStatus, agentNodeId?: string) => void
   getViewByNodeId: (nodeId: string) => ViewInstance | undefined
   getViewByCardId: (cardId: string) => ViewInstance | undefined
+  getClosedViewByCardId: (cardId: string) => ViewInstance | undefined
   loadPersistedViews: () => Promise<void>
 }
 
@@ -48,6 +60,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   instances: [
     { id: 'canvas', type: 'canvas', label: 'Canvas', closeable: false },
   ],
+  closedViews: [],
   activeId: 'canvas',
 
   activate: (id) => {
@@ -63,7 +76,7 @@ export const useViewStore = create<ViewStore>((set, get) => ({
   },
 
   close: (id) => {
-    const { instances, activeId } = get()
+    const { instances, activeId, closedViews } = get()
     const inst = instances.find((i) => i.id === id)
     if (!inst?.closeable) return
     const remaining = instances.filter((i) => i.id !== id)
@@ -72,6 +85,18 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       ? (remaining[Math.max(0, idx - 1)]?.id ?? 'canvas')
       : activeId
     persistViews(remaining)
+
+    // Track closed worktree views so they can be reopened from the kanban board
+    if (inst.worktreePath && inst.sourceCardId) {
+      const alreadyClosed = closedViews.some((v) => v.id === inst.id)
+      if (!alreadyClosed) {
+        const updated = [...closedViews, { ...inst, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }]
+        persistClosedViews(updated)
+        set({ instances: remaining, activeId: newActiveId, closedViews: updated })
+        return
+      }
+    }
+
     set({ instances: remaining, activeId: newActiveId })
   },
 
@@ -96,6 +121,27 @@ export const useViewStore = create<ViewStore>((set, get) => ({
     return viewId
   },
 
+  reopenClosedView: (viewId) => {
+    const { closedViews, instances } = get()
+    const view = closedViews.find((v) => v.id === viewId)
+    if (!view) return
+    // Already open?
+    if (instances.find((i) => i.id === viewId)) {
+      set({ activeId: viewId })
+      return
+    }
+    const restored: ViewInstance = {
+      ...view,
+      agentStatus: 'idle' as AgentStatus,
+      agentNodeId: undefined,
+    }
+    const updatedClosed = closedViews.filter((v) => v.id !== viewId)
+    persistClosedViews(updatedClosed)
+    const newInstances = [...instances, restored]
+    persistViews(newInstances)
+    set({ instances: newInstances, activeId: viewId, closedViews: updatedClosed })
+  },
+
   updateAgentStatus: (viewId, status, agentNodeId) => {
     set((s) => ({
       instances: s.instances.map((inst) =>
@@ -114,19 +160,33 @@ export const useViewStore = create<ViewStore>((set, get) => ({
     return get().instances.find((i) => i.sourceCardId === cardId)
   },
 
+  getClosedViewByCardId: (cardId) => {
+    return get().closedViews.find((i) => i.sourceCardId === cardId)
+  },
+
   loadPersistedViews: async () => {
     try {
       const raw = await window.appState.get('worktree_views')
-      if (!raw) return
-      const views = JSON.parse(raw) as ViewInstance[]
-      // Restore worktree views with idle agent status (agent not running after restart)
-      const restored = views.map((v) => ({
-        ...v,
-        agentStatus: 'idle' as AgentStatus,
-        agentNodeId: undefined,
-      }))
-      if (restored.length > 0) {
-        set((s) => ({ instances: [...s.instances, ...restored] }))
+      if (raw) {
+        const views = JSON.parse(raw) as ViewInstance[]
+        const restored = views.map((v) => ({
+          ...v,
+          agentStatus: 'idle' as AgentStatus,
+          agentNodeId: undefined,
+        }))
+        if (restored.length > 0) {
+          set((s) => ({ instances: [...s.instances, ...restored] }))
+        }
+      }
+    } catch {}
+    // Also load closed worktree views
+    try {
+      const raw = await window.appState.get('closed_worktree_views')
+      if (raw) {
+        const closed = JSON.parse(raw) as ViewInstance[]
+        if (closed.length > 0) {
+          set({ closedViews: closed })
+        }
       }
     } catch {}
   },
