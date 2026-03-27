@@ -91,8 +91,7 @@ function CardItem({
         if (!editing && worktreeView) {
           useViewStore.getState().activate(worktreeView.id)
         }
-      }
-
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation()
         setDraft(card.title)
