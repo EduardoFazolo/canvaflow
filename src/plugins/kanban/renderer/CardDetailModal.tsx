@@ -346,7 +346,7 @@ export function CardDetailModal({ card, onUpdate, onClose }: CardDetailModalProp
           flexShrink: 0,
         }}>
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
-            Paste images with ⌘V | Supports markdown formatting
+            Paste images with ⌘V | Click image to select, Backspace to delete | Markdown supported
           </span>
           <button
             onClick={onClose}
@@ -433,9 +433,25 @@ const editorStyles = `
   }
   .card-detail-editor .tiptap img {
     max-width: 100%;
+    max-height: 300px;
     height: auto;
+    object-fit: contain;
     border-radius: 6px;
     margin: 8px 0;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    padding: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    display: block;
+  }
+  .card-detail-editor .tiptap img:hover {
+    border-color: rgba(167,139,250,0.4);
+    box-shadow: 0 0 0 2px rgba(167,139,250,0.1);
+  }
+  .card-detail-editor .tiptap img.ProseMirror-selectednode {
+    border-color: rgba(167,139,250,0.7);
+    box-shadow: 0 0 0 3px rgba(167,139,250,0.2);
   }
   .card-detail-editor .tiptap .is-editor-empty:first-child::before {
     content: 'Write a description... (paste images with ⌘V)';
@@ -443,5 +459,9 @@ const editorStyles = `
     pointer-events: none;
     float: left;
     height: 0;
+  }
+  .card-detail-editor .tiptap p + img,
+  .card-detail-editor .tiptap img + p {
+    margin-top: 12px;
   }
 `
