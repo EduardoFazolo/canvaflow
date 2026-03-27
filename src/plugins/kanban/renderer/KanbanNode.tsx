@@ -144,6 +144,7 @@ function CardItem({
           cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
           transition: 'border-color 0.12s, background 0.12s',
           position: 'relative',
+          outline: 'none',
           ...(hovered ? {
             borderColor: conflictingFiles
               ? 'rgba(239,68,68,0.5)'
