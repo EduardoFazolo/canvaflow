@@ -138,7 +138,7 @@ function CardItem({
           background: conflictingFiles ? 'rgba(239,68,68,0.04)' : '#1a1a1a',
           border: conflictingFiles
             ? '1px solid rgba(239,68,68,0.3)'
-            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid transparent',
+            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : '1px solid transparent',
           borderRadius: 6,
           padding: '8px 10px',
           cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
@@ -148,7 +148,7 @@ function CardItem({
           ...(hovered ? {
             borderColor: conflictingFiles
               ? 'rgba(239,68,68,0.5)'
-              : worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'transparent',
+              : worktreeView ? 'rgba(34,211,238,0.3)' : 'transparent',
             background: conflictingFiles ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
           } : {}),
         }}
