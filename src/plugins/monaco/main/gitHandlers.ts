@@ -16,6 +16,26 @@ function git(rootPath: string) {
   return gitCache.get(rootPath)!
 }
 
+/** Parse merge-tree output to extract conflicting files (exported for testing) */
+export function parseMergeTreeConflicts(output: string): string[] {
+  const files: string[] = []
+  const seen = new Set<string>()
+  for (const line of output.split('\n')) {
+    const conflictMatch = line.match(/CONFLICT.*?:\s*Merge conflict in (.+)/)
+    if (conflictMatch) {
+      const f = conflictMatch[1].trim()
+      if (!seen.has(f)) { seen.add(f); files.push(f) }
+      continue
+    }
+    const rawMatch = line.match(/^\d{6}\s+[0-9a-f]+\s+[123]\t(.+)/)
+    if (rawMatch) {
+      const f = rawMatch[1].trim()
+      if (!seen.has(f)) { seen.add(f); files.push(f) }
+    }
+  }
+  return files
+}
+
 export function registerGitHandlers(ipc: IpcMainLike): void {
   ipc.handle('git:isRepo', async (_e, rootPath: string): Promise<boolean> => {
     try { await git(rootPath).revparse(['--git-dir']); return true } catch { return false }
@@ -209,5 +229,65 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
       }
       return worktrees
     } catch { return [] }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Merge conflict detection
+  // ---------------------------------------------------------------------------
+
+  /** Run merge-tree and return conflicting files (empty array if clean merge) */
+  async function detectConflicts(g: ReturnType<typeof simpleGit>, targetBranch: string, branch: string): Promise<string[]> {
+    try {
+      // simple-git raw() resolves even on non-zero exit for merge-tree
+      const output = await g.raw(['merge-tree', '--write-tree', targetBranch, branch])
+      return parseMergeTreeConflicts(output)
+    } catch {
+      // merge-tree not available — fallback to diff overlap heuristic
+      try {
+        const mergeBase = await g.raw(['merge-base', targetBranch, branch])
+        const base = mergeBase.trim()
+        if (!base) return []
+        const targetDiff = await g.raw(['diff', '--name-only', base, targetBranch])
+        const branchDiff = await g.raw(['diff', '--name-only', base, branch])
+        const targetFiles = new Set(targetDiff.trim().split('\n').filter(Boolean))
+        return branchDiff.trim().split('\n').filter(Boolean).filter(f => targetFiles.has(f))
+      } catch {
+        return []
+      }
+    }
+  }
+
+  ipc.handle('git:checkMergeConflicts', async (
+    _e,
+    rootPath: string,
+    branchName: string,
+    targetBranch = 'main',
+  ): Promise<{ hasConflicts: boolean; conflictingFiles: string[] }> => {
+    const files = await detectConflicts(git(rootPath), targetBranch, branchName)
+    return { hasConflicts: files.length > 0, conflictingFiles: files }
+  })
+
+  ipc.handle('git:checkAllWorktreeConflicts', async (
+    _e,
+    rootPath: string,
+    targetBranch = 'main',
+  ): Promise<Record<string, string[]>> => {
+    const g = git(rootPath)
+    const conflicts: Record<string, string[]> = {}
+    try {
+      const result = await g.raw(['worktree', 'list', '--porcelain'])
+      const blocks = result.trim().split('\n\n')
+      for (const block of blocks) {
+        const lines = block.split('\n')
+        let branch = ''
+        for (const line of lines) {
+          if (line.startsWith('branch ')) branch = line.slice(7).replace('refs/heads/', '')
+        }
+        if (!branch || branch === targetBranch) continue
+        const files = await detectConflicts(g, targetBranch, branch)
+        if (files.length > 0) conflicts[branch] = files
+      }
+    } catch { /* no worktrees */ }
+    return conflicts
   })
 }

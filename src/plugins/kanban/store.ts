@@ -59,12 +59,17 @@ function createDefaultState(): KanbanState {
 // Store
 // ---------------------------------------------------------------------------
 
+/** Maps branchName → list of conflicting file paths */
+export type ConflictMap = Record<string, string[]>
+
 interface KanbanStore {
   state: KanbanState
   workspaceId: string
   loaded: boolean
+  conflicts: ConflictMap
   load: (workspaceId: string) => Promise<void>
   setState: (next: KanbanState) => void
+  setConflicts: (conflicts: ConflictMap) => void
 }
 
 /** Debounced save handle */
@@ -81,6 +86,7 @@ export const useKanbanStore = create<KanbanStore>((set, get) => ({
   state: createDefaultState(),
   workspaceId: '',
   loaded: false,
+  conflicts: {},
 
   load: async (workspaceId: string) => {
     // Don't reload if already loaded for this workspace
@@ -101,5 +107,9 @@ export const useKanbanStore = create<KanbanStore>((set, get) => ({
     set({ state: next })
     const { workspaceId } = get()
     if (workspaceId) persistToAppState(workspaceId, next)
+  },
+
+  setConflicts: (conflicts: ConflictMap) => {
+    set({ conflicts })
   },
 }))

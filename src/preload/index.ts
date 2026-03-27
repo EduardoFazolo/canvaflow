@@ -137,6 +137,11 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:wt:remove', rootPath, worktreePath),
   worktreeList: (rootPath: string): Promise<Array<{ path: string; head: string; branch: string }>> =>
     ipcRenderer.invoke('git:wt:list', rootPath),
+
+  checkMergeConflicts: (rootPath: string, branchName: string, targetBranch?: string): Promise<{ hasConflicts: boolean; conflictingFiles: string[] }> =>
+    ipcRenderer.invoke('git:checkMergeConflicts', rootPath, branchName, targetBranch),
+  checkAllWorktreeConflicts: (rootPath: string, targetBranch?: string): Promise<Record<string, string[]>> =>
+    ipcRenderer.invoke('git:checkAllWorktreeConflicts', rootPath, targetBranch),
 })
 
 contextBridge.exposeInMainWorld('fs', {
