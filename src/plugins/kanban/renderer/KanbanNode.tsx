@@ -52,6 +52,8 @@ function CardItem({
 
   // Check if this card has an active worktree view
   const worktreeView = useViewStore((s) => s.instances.find((i) => i.sourceCardId === card.id))
+  // Check if this card has a closed (past) worktree view
+  const closedView = useViewStore((s) => !worktreeView ? s.closedViews.find((i) => i.sourceCardId === card.id) : undefined)
 
   const hasContent = !!(card.content || card.description)
   const hasImages = card.content ? JSON.stringify(card.content).includes('"type":"image"') : false
@@ -98,13 +100,13 @@ function CardItem({
         }}
         style={{
           background: '#1a1a1a',
-          border: worktreeView ? '1px solid rgba(34,211,238,0.15)' : '1px solid rgba(255,255,255,0.07)',
+          border: worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid rgba(255,255,255,0.07)',
           borderRadius: 6,
           padding: '8px 10px',
-          cursor: worktreeView ? 'pointer' : 'grab',
+          cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
           transition: 'border-color 0.12s, background 0.12s',
           position: 'relative',
-          ...(hovered ? { borderColor: worktreeView ? 'rgba(34,211,238,0.3)' : 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
+          ...(hovered ? { borderColor: worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
         }}
       >
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -147,7 +149,36 @@ function CardItem({
           />
         )}
 
-        {hovered && !worktreeView && (
+        {/* Reopen past canvas button */}
+        {closedView && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              useViewStore.getState().reopenClosedView(closedView.id)
+              switchCanvas(closedView.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={`View canvas: ${closedView.branchName}`}
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 22, height: 22, borderRadius: 4,
+              background: hovered ? 'rgba(34,211,238,0.12)' : 'rgba(34,211,238,0.06)',
+              border: 'none', color: 'rgba(34,211,238,0.6)',
+              cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, lineHeight: 1,
+              transition: 'background 0.12s',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" />
+              <line x1="2" y1="6" x2="14" y2="6" />
+              <line x1="5.5" y1="3" x2="5.5" y2="6" />
+            </svg>
+          </button>
+        )}
+
+        {hovered && !worktreeView && !closedView && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
             onPointerDown={(e) => e.stopPropagation()}
