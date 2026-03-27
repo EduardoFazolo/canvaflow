@@ -107,6 +107,7 @@ function CardItem({
           document.body.appendChild(clone)
           e.dataTransfer.setDragImage(clone, e.nativeEvent.offsetX, e.nativeEvent.offsetY)
           requestAnimationFrame(() => document.body.removeChild(clone))
+          setHovered(false)
           el.style.opacity = '0.3'
           el.style.transform = 'scale(0.97)'
           el.style.transition = 'opacity 0.15s, transform 0.15s'
@@ -137,7 +138,7 @@ function CardItem({
           background: conflictingFiles ? 'rgba(239,68,68,0.04)' : '#1a1a1a',
           border: conflictingFiles
             ? '1px solid rgba(239,68,68,0.3)'
-            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid rgba(255,255,255,0.07)',
+            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid transparent',
           borderRadius: 6,
           padding: '8px 10px',
           cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
