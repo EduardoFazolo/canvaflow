@@ -70,6 +70,8 @@ interface KanbanStore {
   load: (workspaceId: string) => Promise<void>
   setState: (next: KanbanState) => void
   setConflicts: (conflicts: ConflictMap) => void
+  /** Add a card to the first column of the active board. Returns the new card, or null if no board is loaded. */
+  addCardToFirstColumn: (card: Omit<KanbanCard, 'id'>) => KanbanCard | null
 }
 
 /** Debounced save handle */
@@ -111,5 +113,24 @@ export const useKanbanStore = create<KanbanStore>((set, get) => ({
 
   setConflicts: (conflicts: ConflictMap) => {
     set({ conflicts })
+  },
+
+  addCardToFirstColumn: (cardData: Omit<KanbanCard, 'id'>) => {
+    const { state, workspaceId } = get()
+    const board = state.boards.find((b) => b.id === state.activeBoardId) ?? state.boards[0]
+    if (!board || board.columns.length === 0) return null
+
+    const newCard: KanbanCard = { id: nanoid(8), ...cardData }
+    const firstCol = board.columns[0]
+    const newColumns = board.columns.map((c) =>
+      c.id === firstCol.id ? { ...c, cards: [...c.cards, newCard] } : c,
+    )
+    const next: KanbanState = {
+      ...state,
+      boards: state.boards.map((b) => (b.id === board.id ? { ...b, columns: newColumns } : b)),
+    }
+    set({ state: next })
+    if (workspaceId) persistToAppState(workspaceId, next)
+    return newCard
   },
 }))

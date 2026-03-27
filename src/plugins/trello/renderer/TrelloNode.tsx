@@ -12,6 +12,8 @@ import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 import { TrelloDropModal, TrelloDropPayload } from './TrelloDropModal'
 import type { TrelloCard } from '../main/handlers'
+import { useKanbanStore } from '../../kanban/store'
+import { trelloCardToTiptap } from '../utils/trelloToTiptap'
 
 declare global {
   namespace JSX {
@@ -306,7 +308,7 @@ const btnHover: React.CSSProperties = {
 
 interface DragDropTarget {
   nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude'
+  nodeType: 'terminal' | 'browser' | 'claude' | 'kanban'
   title: string
   left: number; top: number; width: number; height: number
 }
@@ -389,7 +391,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
 
     const { camera } = useCameraStore.getState()
     const candidates = Array.from(useNodeStore.getState().nodes.values())
-      .filter((c) => c.id !== node.id && (c.type === 'terminal' || c.type === 'browser' || c.type === 'claude'))
+      .filter((c) => c.id !== node.id && (c.type === 'terminal' || c.type === 'browser' || c.type === 'claude' || c.type === 'kanban'))
       .map((c) => {
         const left = canvasRect.left + camera.x + c.x * camera.zoom
         const top = canvasRect.top + camera.y + c.y * camera.zoom
@@ -406,7 +408,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
     if (!hit) return null
     return {
       nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude',
+      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude' | 'kanban',
       title: hit.candidate.title,
       left: hit.left, top: hit.top, width: hit.width, height: hit.height,
     }
@@ -455,6 +457,21 @@ export function TrelloNode({ node }: Props): React.ReactElement {
         }
         if (target.nodeType === 'browser') {
           await pasteIntoBrowser(target.nodeId, text)
+          return
+        }
+        if (target.nodeType === 'kanban') {
+          // Fetch full card data for rich content
+          let card: TrelloCard | null = prefetchedCard.current
+          if (!card && apiKey && token) {
+            try { card = await window.trello.fetchCard(apiKey, token, cardId) } catch {}
+          }
+          if (!card) {
+            try { card = await window.trello.fetchCardWithSession(partition, cardId) } catch {}
+          }
+          const content = card ? trelloCardToTiptap(card) : undefined
+          const description = card?.desc?.trim() || undefined
+          useKanbanStore.getState().addCardToFirstColumn({ title, description, content })
+          prefetchedCard.current = null
           return
         }
       }
@@ -824,6 +841,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
         }}>
           {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude'
             : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal'
+            : dropTarget.nodeType === 'kanban' ? 'Drop to add to Kanban'
             : 'Drop to copy into browser'}
         </div>
       </div>,
