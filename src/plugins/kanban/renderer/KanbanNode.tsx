@@ -38,6 +38,7 @@ const BADGE_COLORS: Record<string, string> = {
 function CardItem({
   card,
   columnId,
+  columnTitle,
   onDelete,
   onUpdate,
   onExternalDrop,
@@ -45,6 +46,7 @@ function CardItem({
 }: {
   card: KanbanCard
   columnId: string
+  columnTitle: string
   onDelete: (colId: string, cardId: string) => void
   onUpdate: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
@@ -61,6 +63,18 @@ function CardItem({
   // Check merge conflicts for this card's branch
   const branchName = worktreeView?.branchName ?? closedView?.branchName
   const conflictingFiles = useKanbanStore((s) => branchName ? s.conflicts[branchName] : undefined)
+
+  // Determine if card is in a review column with a branch (show PR link)
+  const isReview = columnTitle.toLowerCase() === 'review'
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (isReview && branchName) {
+      const workspace = getActiveWorkspace()
+      if (workspace?.path) {
+        window.git.remoteUrl(workspace.path).then(url => setRemoteUrl(url)).catch(() => setRemoteUrl(null))
+      }
+    }
+  }, [isReview, branchName])
 
   const hasContent = !!(card.content || card.description)
   const hasImages = card.content ? JSON.stringify(card.content).includes('"type":"image"') : false
@@ -109,7 +123,7 @@ function CardItem({
           background: conflictingFiles ? 'rgba(239,68,68,0.04)' : '#1a1a1a',
           border: conflictingFiles
             ? '1px solid rgba(239,68,68,0.3)'
-            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid rgba(255,255,255,0.07)',
+            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : closedView ? '1px solid rgba(34,211,238,0.08)' : '1px solid transparent',
           borderRadius: 6,
           padding: '8px 10px',
           cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
@@ -118,7 +132,7 @@ function CardItem({
           ...(hovered ? {
             borderColor: conflictingFiles
               ? 'rgba(239,68,68,0.5)'
-              : worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.15)',
+              : worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.08)',
             background: conflictingFiles ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
           } : {}),
         }}
@@ -161,6 +175,37 @@ function CardItem({
                 ? 'worktree-pulse 1.5s ease-in-out infinite' : undefined,
             }}
           />
+        )}
+
+        {/* PR link for cards in review with a branch */}
+        {isReview && branchName && remoteUrl && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              window.app.openExternal(`${remoteUrl}/pulls?q=head:${branchName}`)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={`Open PR for ${branchName}`}
+            style={{
+              position: 'absolute', top: 4, right: worktreeView?.agentStatus ? 20 : 4,
+              width: 22, height: 22, borderRadius: 4,
+              background: hovered ? 'rgba(255,255,255,0.08)' : 'transparent',
+              border: 'none', color: 'rgba(255,255,255,0.45)',
+              cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              transition: 'background 0.12s, color 0.12s',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.8)'
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.45)'
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
+            </svg>
+          </button>
         )}
 
         {/* Reopen past canvas button */}
@@ -1260,6 +1305,7 @@ function Column({
             <CardItem
               card={card}
               columnId={column.id}
+              columnTitle={column.title}
               onDelete={onDeleteCard}
               onUpdate={onUpdateCard}
               onExternalDrop={onExternalDrop}
