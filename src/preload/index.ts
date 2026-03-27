@@ -6,6 +6,10 @@ import type {
   OrchestratorStatusEvent,
   NoteUpdateEvent,
 } from '../plugins/orchestrator/shared/types'
+import type {
+  CoordinatorStartPayload,
+  CoordinatorResultEvent,
+} from '../plugins/coordinator/shared/types'
 
 interface NodeMetadataRow { nodeId: string; lastFocusedAt: number; focusCount: number; tags: string }
 
@@ -318,6 +322,20 @@ contextBridge.exposeInMainWorld('orchestrator', {
     const listener = (_: unknown, event: NoteUpdateEvent) => cb(event)
     ipcRenderer.on('orchestrator:note-update', listener)
     return () => ipcRenderer.removeListener('orchestrator:note-update', listener)
+  },
+})
+
+contextBridge.exposeInMainWorld('coordinatorPlanner', {
+  start: (coordinatorId: string, payload: CoordinatorStartPayload): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('coordinator-planner:start', coordinatorId, payload),
+
+  cancel: (coordinatorId: string): Promise<void> =>
+    ipcRenderer.invoke('coordinator-planner:cancel', coordinatorId),
+
+  onStatus: (cb: (event: CoordinatorResultEvent) => void): (() => void) => {
+    const listener = (_: unknown, event: CoordinatorResultEvent) => cb(event)
+    ipcRenderer.on('coordinator-planner:status', listener)
+    return () => ipcRenderer.removeListener('coordinator-planner:status', listener)
   },
 })
 

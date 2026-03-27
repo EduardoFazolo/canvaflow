@@ -5,6 +5,10 @@ import type {
   OrchestratorStatusEvent,
   NoteUpdateEvent,
 } from '../../../plugins/orchestrator/shared/types'
+import type {
+  CoordinatorStartPayload,
+  CoordinatorResultEvent,
+} from '../../../plugins/coordinator/shared/types'
 
 // Global window API types exposed via contextBridge
 
@@ -117,6 +121,12 @@ declare global {
       onNodeCreated: (cb: (event: SubagentSpawnedEvent) => void) => () => void
       onStatus: (cb: (event: OrchestratorStatusEvent) => void) => () => void
       onNoteUpdate: (cb: (event: NoteUpdateEvent) => void) => () => void
+    }
+
+    coordinatorPlanner: {
+      start: (coordinatorId: string, payload: CoordinatorStartPayload) => Promise<{ ok: boolean }>
+      cancel: (coordinatorId: string) => Promise<void>
+      onStatus: (cb: (event: CoordinatorResultEvent) => void) => () => void
     }
 
     lovable: {

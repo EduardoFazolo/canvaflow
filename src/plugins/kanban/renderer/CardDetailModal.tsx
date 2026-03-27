@@ -165,9 +165,11 @@ interface CardDetailModalProps {
   card: KanbanCard
   onUpdate: (patch: Partial<KanbanCard>) => void
   onClose: () => void
+  /** Called when user clicks "Plan" — triggers coordinator flow */
+  onPlan?: (card: KanbanCard) => void
 }
 
-export function CardDetailModal({ card, onUpdate, onClose }: CardDetailModalProps): React.ReactElement {
+export function CardDetailModal({ card, onUpdate, onClose, onPlan }: CardDetailModalProps): React.ReactElement {
   const [title, setTitle] = useState(card.title)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -348,19 +350,55 @@ export function CardDetailModal({ card, onUpdate, onClose }: CardDetailModalProp
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
             Paste images with ⌘V | Click image to select, Backspace to delete | Markdown supported
           </span>
-          <button
-            onClick={onClose}
-            style={{
-              fontSize: 12, padding: '4px 14px', borderRadius: 6,
-              background: 'rgba(255,255,255,0.08)', border: 'none',
-              color: '#aaa', cursor: 'pointer',
-              transition: 'background 0.12s',
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)' }}
-          >
-            Close
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {onPlan && (
+              <button
+                onClick={() => {
+                  // Flush any pending content save before planning
+                  if (editor) {
+                    const json = editor.getJSON()
+                    const plainText = editor.getText()
+                    onUpdate({ content: json, description: plainText.slice(0, 200) || undefined })
+                  }
+                  onPlan({ ...card, title: title.trim() || card.title })
+                }}
+                style={{
+                  fontSize: 13, fontWeight: 600, padding: '5px 18px', borderRadius: 6,
+                  background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)',
+                  color: 'rgba(167,139,250,0.9)', cursor: 'pointer',
+                  transition: 'background 0.12s, border-color 0.12s',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => {
+                  Object.assign((e.currentTarget as HTMLElement).style, {
+                    background: 'rgba(167,139,250,0.2)',
+                    borderColor: 'rgba(167,139,250,0.5)',
+                  })
+                }}
+                onMouseLeave={(e) => {
+                  Object.assign((e.currentTarget as HTMLElement).style, {
+                    background: 'rgba(167,139,250,0.12)',
+                    borderColor: 'rgba(167,139,250,0.3)',
+                  })
+                }}
+              >
+                Plan
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                fontSize: 12, padding: '4px 14px', borderRadius: 6,
+                background: 'rgba(255,255,255,0.08)', border: 'none',
+                color: '#aaa', cursor: 'pointer',
+                transition: 'background 0.12s',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.08)' }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>,

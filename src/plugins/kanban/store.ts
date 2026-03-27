@@ -11,6 +11,12 @@ export interface KanbanCard {
   description?: string
   /** Rich content stored as TipTap JSON for markdown + images */
   content?: object
+  /** Execution order within a coordinated plan (lower = earlier) */
+  order?: number
+  /** Card IDs that must be completed before this card can start */
+  dependsOn?: string[]
+  /** ID of the parent/epic card that spawned this task via coordinator */
+  parentCardId?: string
 }
 
 export interface KanbanColumn {

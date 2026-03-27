@@ -12,6 +12,9 @@ import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
 import { CardDetailModal } from './CardDetailModal'
 import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 import { buildTaskPrompt } from '../contentExtractor'
+import { TaskDropModal } from '../../../renderer/src/components/ui/task-drop-modal'
+import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
+import { registerCoordinatorRun } from '../../coordinator/renderer/CoordinatorMount'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,6 +57,7 @@ function CardItem({
   onUpdate,
   onExternalDrop,
   onResolveConflicts,
+  onPlan,
 }: {
   card: KanbanCard
   columnId: string
@@ -61,6 +65,7 @@ function CardItem({
   onUpdate: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
   onResolveConflicts: (card: KanbanCard, branchName: string, conflictingFiles: string[]) => void
+  onPlan: (card: KanbanCard) => void
 }): React.ReactElement {
   const [modalOpen, setModalOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -84,6 +89,10 @@ function CardItem({
           card={card}
           onUpdate={(patch) => onUpdate(columnId, card.id, patch)}
           onClose={() => setModalOpen(false)}
+          onPlan={(c) => {
+            setModalOpen(false)
+            onPlan(c)
+          }}
         />
       )}
       <div
@@ -746,6 +755,13 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     setPendingDrop({ title: card.title, subtitle: card.description, clientX, clientY })
   }, [])
 
+  // ----- Plan (coordinator) flow -----
+  const [planCard, setPlanCard] = useState<KanbanCard | null>(null)
+
+  const onPlanCard = useCallback((card: KanbanCard) => {
+    setPlanCard(card)
+  }, [])
+
   // ----- Drag & drop between columns -----
 
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -834,6 +850,61 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     <BaseNode node={node}>
       {pendingDrop && (
         <KanbanDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />
+      )}
+      {planCard && (
+        <TaskDropModal
+          sourceLabel="Plan Task"
+          payload={{
+            title: planCard.title,
+            subtitle: planCard.description,
+            clientX: window.innerWidth / 2,
+            clientY: window.innerHeight / 2,
+          }}
+          onStartAgent={async (agentId, ctx) => {
+            if (agentId === 'note') {
+              setPlanCard(null)
+              return
+            }
+
+            const extracted = buildTaskPrompt(planCard)
+            const coordinatorId = nanoid(8)
+
+            // Register this run so CoordinatorMount can write back to kanban
+            registerCoordinatorRun(coordinatorId, planCard.id, workspaceId)
+
+            // Spawn an orchestrator node on canvas to show streaming progress
+            const camera = useCameraStore.getState().camera
+            const canvasEl = document.querySelector('[data-canvas-root]')
+            const canvasRect = canvasEl?.getBoundingClientRect()
+            const wx = canvasRect
+              ? (window.innerWidth / 2 - canvasRect.left - camera.x) / camera.zoom
+              : 200
+            const wy = canvasRect
+              ? (window.innerHeight / 2 - canvasRect.top - camera.y) / camera.zoom
+              : 200
+
+            const vizNode = useNodeStore.getState().add('orchestrator', wx, wy, {
+              task: `Plan: ${planCard.title}`,
+              status: 'thinking',
+              subagentIds: [],
+              coordinatorId,
+            })
+
+            // Start the coordinator via the main process
+            // CoordinatorMount listens for results and writes to kanban
+            // It also updates the orchestrator node status via coordinatorId
+            await window.coordinatorPlanner.start(coordinatorId, {
+              task: planCard.title,
+              markdown: extracted.text,
+              cardId: planCard.id,
+              workspaceId,
+              workspacePath: ctx.cwd,
+            })
+
+            setPlanCard(null)
+          }}
+          onClose={() => setPlanCard(null)}
+        />
       )}
       {conflictResolve && (
         <ConflictResolveModal
@@ -1051,6 +1122,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               onUpdateCard={updateCard}
               onExternalDrop={onExternalDrop}
               onResolveConflicts={onResolveConflicts}
+              onPlanCard={onPlanCard}
               onRename={renameColumn}
               onColorChange={changeColumnColor}
               onDelete={removeColumn}
@@ -1193,6 +1265,7 @@ function Column({
   onUpdateCard,
   onExternalDrop,
   onResolveConflicts,
+  onPlanCard,
   onRename,
   onColorChange,
   onDelete,
@@ -1205,6 +1278,7 @@ function Column({
   onUpdateCard: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
   onResolveConflicts: (card: KanbanCard, branchName: string, conflictingFiles: string[]) => void
+  onPlanCard: (card: KanbanCard) => void
   onRename: (colId: string, title: string) => void
   onColorChange: (colId: string, color: string) => void
   onDelete: (colId: string) => void
@@ -1298,6 +1372,7 @@ function Column({
               onUpdate={onUpdateCard}
               onExternalDrop={onExternalDrop}
               onResolveConflicts={onResolveConflicts}
+              onPlan={onPlanCard}
             />
           </div>
         ))}
