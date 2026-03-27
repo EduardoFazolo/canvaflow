@@ -147,7 +147,7 @@ function CardItem({
           ...(hovered ? {
             borderColor: conflictingFiles
               ? 'rgba(239,68,68,0.5)'
-              : worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.15)',
+              : worktreeView ? 'rgba(34,211,238,0.3)' : closedView ? 'rgba(34,211,238,0.18)' : 'transparent',
             background: conflictingFiles ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
           } : {}),
         }}
