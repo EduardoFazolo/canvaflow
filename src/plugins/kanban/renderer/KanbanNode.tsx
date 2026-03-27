@@ -19,6 +19,15 @@ let dragCardId: string | null = null
 let dragSourceColId: string | null = null
 let droppedInternally = false
 
+// Helper: convert hex color to rgba string
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -73,10 +82,13 @@ function CardItem({
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('application/canvaflow-kanban-card', '')
         const el = e.currentTarget as HTMLElement
-        el.style.opacity = '0.4'
+        el.style.animation = 'kanban-card-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
+        requestAnimationFrame(() => { el.style.opacity = '0.4' })
       }}
       onDragEnd={(e) => {
-        (e.currentTarget as HTMLElement).style.opacity = '1'
+        const el = e.currentTarget as HTMLElement
+        el.style.opacity = '1'
+        el.style.animation = ''
         if (!droppedInternally && e.clientX > 0 && e.clientY > 0) {
           onExternalDrop(card, e.clientX, e.clientY)
         }
@@ -546,6 +558,13 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
 
   return (
     <BaseNode node={node}>
+      <style>{`
+        @keyframes kanban-card-pop {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.045); }
+          100% { transform: scale(0.97); }
+        }
+      `}</style>
       {pendingDrop && (
         <KanbanDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />
       )}
@@ -891,14 +910,23 @@ function Column({
         flex: '1 0 240px',
         display: 'flex',
         flexDirection: 'column',
-        background: dropHighlight ? 'rgba(255,255,255,0.03)' : '#141414',
+        background: dropHighlight ? hexToRgba(column.color, 0.06) : '#141414',
         borderRadius: 8,
-        border: '1px solid rgba(255,255,255,0.06)',
+        border: dropHighlight
+          ? `1px solid ${hexToRgba(column.color, 0.25)}`
+          : '1px solid rgba(255,255,255,0.06)',
         overflow: 'hidden',
-        transition: 'background 0.12s',
+        transition: 'background 0.15s, border-color 0.15s',
       }}
     >
-      <div style={{ height: 3, background: column.color, borderRadius: '8px 8px 0 0', flexShrink: 0 }} />
+      <div style={{
+        height: dropHighlight ? 4 : 3,
+        background: column.color,
+        borderRadius: '8px 8px 0 0',
+        flexShrink: 0,
+        transition: 'height 0.15s, box-shadow 0.15s',
+        boxShadow: dropHighlight ? `0 0 8px ${hexToRgba(column.color, 0.4)}` : 'none',
+      }} />
 
       <ColumnHeader
         column={column}
