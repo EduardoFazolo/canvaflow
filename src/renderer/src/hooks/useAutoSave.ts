@@ -49,26 +49,32 @@ export function useAutoSave(): void {
 
   useEffect(() => {
     const unsubNodes = useNodeStore.subscribe((state) => {
-      const workspaceId = useWorkspaceStore.getState().activeId
-      if (!workspaceId) return
+      const activeWsId = state.activeWorkspaceId
+      if (!activeWsId) return
       if (nodeTimerRef.current) clearTimeout(nodeTimerRef.current)
       nodeTimerRef.current = setTimeout(async () => {
-        const rows = Array.from(state.nodes.values()).map((n) =>
-          nodeToRow(n, workspaceId)
-        )
-        await window.canvas.saveNodes(workspaceId, rows)
+        if (activeWsId.startsWith('wt-')) {
+          // Worktree views: persist to appState (no FK constraint)
+          const rows = Array.from(state.nodes.values()).map((n) => nodeToRow(n, activeWsId))
+          await window.appState.set(`wt_nodes_${activeWsId}`, JSON.stringify(rows))
+        } else {
+          const rows = Array.from(state.nodes.values()).map((n) => nodeToRow(n, activeWsId))
+          await window.canvas.saveNodes(activeWsId, rows)
+        }
       }, NODE_DEBOUNCE_MS)
     })
 
     const unsubCamera = useCameraStore.subscribe((state) => {
-      const workspaceId = useWorkspaceStore.getState().activeId
-      if (!workspaceId) return
+      const activeWsId = useNodeStore.getState().activeWorkspaceId
+      if (!activeWsId) return
       if (cameraTimerRef.current) clearTimeout(cameraTimerRef.current)
       cameraTimerRef.current = setTimeout(async () => {
-        await window.canvas.saveCamera({
-          workspaceId,
-          ...state.camera,
-        })
+        if (activeWsId.startsWith('wt-')) {
+          // Worktree views: persist camera to appState
+          await window.appState.set(`wt_camera_${activeWsId}`, JSON.stringify(state.camera))
+        } else {
+          await window.canvas.saveCamera({ workspaceId: activeWsId, ...state.camera })
+        }
       }, CAMERA_DEBOUNCE_MS)
     })
 
@@ -88,16 +94,24 @@ export function useAutoSave(): void {
         }
       }
 
-      // Synchronous save of ALL loaded workspaces
+      // Synchronous save of ALL loaded workspaces (blocks until complete)
       const { workspaceNodes, activeWorkspaceId } = useNodeStore.getState()
       for (const [wsId, nodes] of workspaceNodes.entries()) {
         const rows = Array.from(nodes.values()).map((n) => nodeToRow(n, wsId))
-        window.canvas.saveNodesSync(wsId, rows)
+        if (wsId.startsWith('wt-')) {
+          window.appState.setSync(`wt_nodes_${wsId}`, JSON.stringify(rows))
+        } else {
+          window.canvas.saveNodesSync(wsId, rows)
+        }
       }
 
-      // Camera: save active workspace (others were saved on switch via cameraStore subscriber)
+      // Camera: save active workspace (sync for worktrees too)
       if (activeWorkspaceId) {
-        window.canvas.saveCamera({ workspaceId: activeWorkspaceId, ...useCameraStore.getState().camera })
+        if (activeWorkspaceId.startsWith('wt-')) {
+          window.appState.setSync(`wt_camera_${activeWorkspaceId}`, JSON.stringify(useCameraStore.getState().camera))
+        } else {
+          window.canvas.saveCamera({ workspaceId: activeWorkspaceId, ...useCameraStore.getState().camera })
+        }
       }
     }
 

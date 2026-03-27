@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, session, Menu, WebContents, shell, clipboa
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions } from './pty'
+import { setupCoordinatorHandlers } from './agentCoordinator'
 import { initDatabase, getAllNodeIds } from './database'
 import { setupWorkspaceHandlers } from './workspace'
 import { startAgentSignalServer } from '../modules/servers/agentic_signals/main/server'
@@ -69,7 +70,9 @@ function createWindow(): void {
     else if (mod && input.shift && input.key === 'E') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newEditor') }
     else if (mod && input.shift && input.key === 'L') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newLovable') }
     else if (mod && input.shift && input.key === 'W') { event.preventDefault(); mainWindow!.webContents.send('shortcut', 'newWindowPicker') }
-    else if (mod && input.alt && input.key === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.alt && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (mod && input.shift && input.key.toLowerCase() === 'i') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
+    else if (input.key === 'F12') { event.preventDefault(); mainWindow!.webContents.toggleDevTools() }
 
   })
 
@@ -86,6 +89,7 @@ function createWindow(): void {
   }
 
   setupPtyHandlers(() => mainWindow?.webContents ?? null)
+  setupCoordinatorHandlers(() => mainWindow?.webContents ?? null)
   startAgentSignalServer(() => mainWindow?.webContents ?? null)
 
   // Apply session setup to every webview that attaches (covers named sessions too)

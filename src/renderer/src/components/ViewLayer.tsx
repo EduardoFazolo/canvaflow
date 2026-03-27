@@ -3,30 +3,35 @@ import { useViewStore } from '../stores/viewStore'
 import { CanvasView } from '../views/CanvasView'
 import { SettingsView } from '../views/SettingsView'
 
-function renderView(type: string): React.ReactElement {
-  if (type === 'canvas') return <CanvasView />
-  if (type === 'settings') return <SettingsView />
-  return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Unknown view: {type}</div>
-}
-
+/**
+ * ViewLayer just renders the active view. No canvas switching logic —
+ * that's handled by canvasManager, called from tab clicks and kanban flow.
+ */
 export function ViewLayer(): React.ReactElement {
   const { instances, activeId } = useViewStore()
+  const activeInst = instances.find((i) => i.id === activeId)
+  const isCanvasActive = activeInst?.type === 'canvas'
+  const isSettingsOpen = instances.some((i) => i.type === 'settings')
 
   return (
     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-      {instances.map((inst) => (
-        <div
-          key={inst.id}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: inst.id === activeId ? 'flex' : 'none',
-            flexDirection: 'column',
-          }}
-        >
-          {renderView(inst.type)}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: isCanvasActive ? 'flex' : 'none',
+        flexDirection: 'column',
+      }}>
+        <CanvasView />
+      </div>
+
+      {isSettingsOpen && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: activeInst?.type === 'settings' ? 'flex' : 'none',
+          flexDirection: 'column',
+        }}>
+          <SettingsView />
         </div>
-      ))}
+      )}
     </div>
   )
 }

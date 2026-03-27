@@ -79,6 +79,9 @@ contextBridge.exposeInMainWorld('appState', {
 
   set: (key: string, value: string): Promise<void> =>
     ipcRenderer.invoke('app:setState', key, value),
+
+  setSync: (key: string, value: string): void =>
+    ipcRenderer.sendSync('app:setStateSync', key, value),
 })
 
 contextBridge.exposeInMainWorld('sessions', {
@@ -127,6 +130,13 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:checkoutBranch', rootPath, name, createNew),
   remoteUrl: (rootPath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:remoteUrl', rootPath),
+
+  worktreeAdd: (rootPath: string, branchName: string, baseBranch?: string): Promise<string> =>
+    ipcRenderer.invoke('git:wt:add', rootPath, branchName, baseBranch),
+  worktreeRemove: (rootPath: string, worktreePath: string): Promise<void> =>
+    ipcRenderer.invoke('git:wt:remove', rootPath, worktreePath),
+  worktreeList: (rootPath: string): Promise<Array<{ path: string; head: string; branch: string }>> =>
+    ipcRenderer.invoke('git:wt:list', rootPath),
 })
 
 contextBridge.exposeInMainWorld('fs', {
@@ -182,6 +192,20 @@ contextBridge.exposeInMainWorld('app', {
     ipcRenderer.invoke('app:getCursorPos'),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('app:openExternal', url),
+})
+
+contextBridge.exposeInMainWorld('coordinator', {
+  register: (nodeId: string, task: string): Promise<void> =>
+    ipcRenderer.invoke('coordinator:register', nodeId, task),
+  unregister: (nodeId: string): Promise<void> =>
+    ipcRenderer.invoke('coordinator:unregister', nodeId),
+  getStatus: (): Promise<Array<{ nodeId: string; phase: string; taskSent: boolean }>> =>
+    ipcRenderer.invoke('coordinator:status'),
+  onStatus: (cb: (event: { nodeId: string; phase: string; message: string }) => void): (() => void) => {
+    const listener = (_: unknown, event: { nodeId: string; phase: string; message: string }) => cb(event)
+    ipcRenderer.on('coordinator:status', listener)
+    return () => ipcRenderer.removeListener('coordinator:status', listener)
+  },
 })
 
 contextBridge.exposeInMainWorld('contextMenu', {

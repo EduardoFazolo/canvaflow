@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import { logAgentDebug } from '../../../modules/servers/agentic_signals/shared/debug'
+import { useActivationStore } from './activationStore'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
 
 export type NodeType = 'terminal' | 'browser' | 'browserv2' | 'note' | 'files' | 'notion' | 'trello' | 'claude' | 'monaco' | 'orchestrator' | 'subagent' | 'windowpicker' | 'kanban'
@@ -37,6 +38,10 @@ interface NodeStore {
   workspaceNodes: Map<string, Map<string, NodeData>>
   activeWorkspaceId: string
 
+  // When set, new nodes get this as their default cwd (used by worktree views)
+  worktreeCwd: string | null
+  setWorktreeCwd: (cwd: string | null) => void
+
   // Workspace management
   loadWorkspace: (wsId: string, nodes: Map<string, NodeData>) => void
 
@@ -44,6 +49,8 @@ interface NodeStore {
   focusedNodeId: string | null
   setFocusedNodeId: (id: string | null) => void
   add: (type: NodeType, x: number, y: number, props?: Record<string, unknown>) => NodeData
+  /** Add a node explicitly to a specific canvas (bypasses activeWorkspaceId) */
+  addToCanvas: (canvasId: string, type: NodeType, x: number, y: number, props?: Record<string, unknown>) => NodeData
   remove: (id: string) => void
   update: (id: string, patch: Partial<NodeData>) => void
   bringToFront: (id: string) => void
@@ -103,8 +110,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   nodes: new Map(),
   workspaceNodes: new Map(),
   activeWorkspaceId: '',
+  worktreeCwd: null,
   focusedNodeId: null,
   selectedNodeIds: new Set(),
+
+  setWorktreeCwd: (cwd) => set({ worktreeCwd: cwd }),
 
   loadWorkspace: (wsId, nodes) => set((s) => {
     const workspaceNodes = new Map(s.workspaceNodes)
@@ -205,6 +215,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   add: (type, x, y, props = {}) => {
     const id = nanoid()
     const zIndex = get().getMaxZIndex() + 1
+    // When on a worktree view, ALWAYS override cwd — callers like context menu
+    // and keyboard shortcuts pass getActiveWorkspace().path which is the main
+    // workspace, not the worktree. worktreeCwd takes priority.
+    const { worktreeCwd } = get()
+    const finalProps = worktreeCwd ? { ...props, cwd: worktreeCwd } : props
     const node: NodeData = {
       id, type, x, y,
       ...DEFAULT_SIZES[type],
@@ -212,7 +227,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       title: DEFAULT_TITLES[type],
       minimized: false,
       contentScale: 1,
-      props,
+      props: finalProps,
       createdAt: Date.now(),
     }
     set((s) => {
@@ -220,6 +235,40 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       nodes.set(id, node)
       return { ...syncBack(nodes, s), focusedNodeId: id }
     })
+    // Freshly created nodes activate immediately — no "Click to start" gate.
+    // The staggered queue is only for bulk-loading from DB on startup.
+    useActivationStore.getState().activateNow(id)
+    return node
+  },
+
+  addToCanvas: (canvasId, type, x, y, props = {}) => {
+    const id = nanoid()
+    const zIndex = get().getMaxZIndex() + 1
+    const { worktreeCwd } = get()
+    const finalProps = worktreeCwd ? { ...props, cwd: worktreeCwd } : props
+    const node: NodeData = {
+      id, type, x, y,
+      ...DEFAULT_SIZES[type],
+      zIndex,
+      title: DEFAULT_TITLES[type],
+      minimized: false,
+      contentScale: 1,
+      props: finalProps,
+      createdAt: Date.now(),
+    }
+    set((s) => {
+      // Add to the SPECIFIED canvas, not whatever activeWorkspaceId happens to be
+      const targetNodes = new Map(s.workspaceNodes.get(canvasId) ?? new Map())
+      targetNodes.set(id, node)
+      const workspaceNodes = new Map(s.workspaceNodes)
+      workspaceNodes.set(canvasId, targetNodes)
+      // If this IS the active canvas, also update `nodes` so the UI renders it
+      if (s.activeWorkspaceId === canvasId) {
+        return { nodes: targetNodes, workspaceNodes, focusedNodeId: id }
+      }
+      return { workspaceNodes }
+    })
+    useActivationStore.getState().activateNow(id)
     return node
   },
 

@@ -3,8 +3,12 @@ import { nanoid } from 'nanoid'
 import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { ColorPicker } from '../../../renderer/src/components/ui/color-picker'
 import { useNodeStore, type NodeData } from '../../../renderer/src/stores/nodeStore'
+import { useViewStore } from '../../../renderer/src/stores/viewStore'
+import { getActiveWorkspace } from '../../../renderer/src/stores/workspaceStore'
 import { useKanbanStore, createDefaultBoard, type KanbanCard, type KanbanColumn, type KanbanBoard, type KanbanState } from '../store'
 import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
+import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
+import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
@@ -17,6 +21,17 @@ let droppedInternally = false
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+const BADGE_COLORS: Record<string, string> = {
+  idle: 'rgba(255,255,255,0.2)',
+  thinking: '#f59e0b',
+  executing: '#3b82f6',
+  modifying_files: '#3b82f6',
+  done: '#22c55e',
+  error: '#ef4444',
+  needs_permission: '#f59e0b',
+  needs_input: '#f59e0b',
+}
 
 function CardItem({
   card,
@@ -35,6 +50,9 @@ function CardItem({
   const [draft, setDraft] = useState(card.title)
   const [descDraft, setDescDraft] = useState(card.description ?? '')
   const [hovered, setHovered] = useState(false)
+
+  // Check if this card has an active worktree view
+  const worktreeView = useViewStore((s) => s.instances.find((i) => i.sourceCardId === card.id))
 
   const commit = useCallback(() => {
     const trimmed = draft.trim()
@@ -67,6 +85,11 @@ function CardItem({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={() => {
+        if (!editing && worktreeView) {
+          useViewStore.getState().activate(worktreeView.id)
+        }
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation()
         setDraft(card.title)
@@ -75,13 +98,13 @@ function CardItem({
       }}
       style={{
         background: '#1a1a1a',
-        border: '1px solid rgba(255,255,255,0.07)',
+        border: worktreeView ? '1px solid rgba(34,211,238,0.15)' : '1px solid rgba(255,255,255,0.07)',
         borderRadius: 6,
         padding: '8px 10px',
-        cursor: editing ? 'text' : 'grab',
+        cursor: editing ? 'text' : (worktreeView ? 'pointer' : 'grab'),
         transition: 'border-color 0.12s, background 0.12s',
         position: 'relative',
-        ...(hovered && !editing ? { borderColor: 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
+        ...(hovered && !editing ? { borderColor: worktreeView ? 'rgba(34,211,238,0.3)' : 'rgba(255,255,255,0.15)', background: '#1e1e1e' } : {}),
       }}
     >
       {editing ? (
@@ -167,7 +190,21 @@ function CardItem({
             </div>
           </div>
 
-          {hovered && (
+          {/* Worktree agent status badge */}
+          {worktreeView && worktreeView.agentStatus && (
+            <div
+              title={`Agent: ${worktreeView.agentStatus}`}
+              style={{
+                position: 'absolute', top: 6, right: worktreeView.agentStatus === 'done' ? 6 : 6,
+                width: 8, height: 8, borderRadius: '50%',
+                background: BADGE_COLORS[worktreeView.agentStatus] || 'rgba(255,255,255,0.2)',
+                animation: (worktreeView.agentStatus === 'thinking' || worktreeView.agentStatus === 'executing' || worktreeView.agentStatus === 'modifying_files')
+                  ? 'worktree-pulse 1.5s ease-in-out infinite' : undefined,
+              }}
+            />
+          )}
+
+          {hovered && !worktreeView && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
               onPointerDown={(e) => e.stopPropagation()}
@@ -305,6 +342,11 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
   const workspaceId = useNodeStore((s) => s.activeWorkspaceId)
   const { state, setState: setKanbanState, load, loaded } = useKanbanStore()
   const [pendingDrop, setPendingDrop] = useState<KanbanDropPayload | null>(null)
+  const [worktreeDrop, setWorktreeDrop] = useState<{
+    card: KanbanCard
+    sourceColId: string
+    targetColId: string
+  } | null>(null)
 
   // Load kanban data for this workspace on mount
   useEffect(() => {
@@ -424,14 +466,8 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     e.dataTransfer.dropEffect = 'move'
   }, [])
 
-  const onDropOnColumn = useCallback(
-    (targetColId: string, insertIndex?: number) => {
-      if (!dragCardId || !dragSourceColId) return
-      if (dragSourceColId === targetColId && insertIndex === undefined) return
-
-      const cardId = dragCardId
-      const srcColId = dragSourceColId
-
+  const moveCard = useCallback(
+    (srcColId: string, targetColId: string, cardId: string, insertIndex?: number) => {
       const srcCol = activeBoard.columns.find((c) => c.id === srcColId)
       if (!srcCol) return
       const card = srcCol.cards.find((c) => c.id === cardId)
@@ -457,10 +493,44 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
       })
 
       updateBoard(newColumns)
+    },
+    [activeBoard, updateBoard],
+  )
+
+  const onDropOnColumn = useCallback(
+    (targetColId: string, insertIndex?: number) => {
+      if (!dragCardId || !dragSourceColId) return
+      if (dragSourceColId === targetColId && insertIndex === undefined) return
+
+      const cardId = dragCardId
+      const srcColId = dragSourceColId
+
+      // Intercept drops to "IN PROGRESS" — show worktree modal instead
+      const targetCol = activeBoard.columns.find((c) => c.id === targetColId)
+      if (targetCol && targetCol.title.toUpperCase() === 'IN PROGRESS' && srcColId !== targetColId) {
+        const srcCol = activeBoard.columns.find((c) => c.id === srcColId)
+        const card = srcCol?.cards.find((c) => c.id === cardId)
+        if (card) {
+          // Check if there's already a worktree view for this card
+          const existingView = useViewStore.getState().getViewByCardId(card.id)
+          if (existingView) {
+            // Just switch to it and move the card normally
+            useViewStore.getState().activate(existingView.id)
+            moveCard(srcColId, targetColId, cardId, insertIndex)
+          } else {
+            setWorktreeDrop({ card, sourceColId: srcColId, targetColId })
+          }
+          dragCardId = null
+          dragSourceColId = null
+          return
+        }
+      }
+
+      moveCard(srcColId, targetColId, cardId, insertIndex)
       dragCardId = null
       dragSourceColId = null
     },
-    [activeBoard, updateBoard],
+    [activeBoard, updateBoard, moveCard],
   )
 
   if (!loaded) {
@@ -477,6 +547,86 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     <BaseNode node={node}>
       {pendingDrop && (
         <KanbanDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />
+      )}
+      {worktreeDrop && (
+        <WorktreeStartModal
+          card={worktreeDrop.card}
+          onConfirm={async (config: WorktreeConfig) => {
+            const workspace = getActiveWorkspace()
+            const cwd = workspace?.path
+            if (!cwd) throw new Error('No active workspace')
+
+            // 1. Create the worktree (auto-retry with suffix if branch name is taken)
+            const baseBranch = config.branchFromMain ? 'main' : undefined
+            let branchName = config.branchName
+            let worktreePath: string
+            try {
+              worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+            } catch {
+              // Branch name taken — append incrementing number
+              for (let i = 1; i <= 99; i++) {
+                branchName = `${config.branchName}-${i}`
+                try {
+                  worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+                  break
+                } catch {
+                  if (i === 99) throw new Error(`Could not create branch: ${config.branchName}`)
+                }
+              }
+              worktreePath = worktreePath!
+            }
+
+            // 2. Create the canvas view tab (but DON'T let it auto-activate yet)
+            const viewId = useViewStore.getState().createWorktreeView({
+              worktreePath,
+              branchName,
+              sourceCardId: worktreeDrop.card.id,
+              parentWorkspaceId: workspaceId,
+            })
+            const viewKey = viewId
+
+            // 3. Switch to the worktree canvas
+            switchCanvas(viewKey)
+
+            // 4. Move card to "In Progress" (operates on kanban store, unaffected by node store)
+            moveCard(worktreeDrop.sourceColId, worktreeDrop.targetColId, worktreeDrop.card.id)
+
+            // 5. Close modal
+            setWorktreeDrop(null)
+
+            // 6. Build the task prompt
+            const basePrompt = worktreeDrop.card.description
+              ? `${worktreeDrop.card.title}\n\n${worktreeDrop.card.description}`
+              : worktreeDrop.card.title
+            const prompt = basePrompt + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
+
+            // 7. Create the agent node EXPLICITLY in the worktree canvas
+            if (config.agentId === 'claude') {
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
+                cwd: worktreePath,
+                claudeFlags: '--dangerously-skip-permissions',
+              })
+
+              window.coordinator.register(newNode.id, prompt)
+              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
+            } else if (config.agentId === 'orchestrate') {
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
+                task: worktreeDrop.card.title,
+                status: 'idle',
+                subagentIds: [],
+              })
+              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
+              window.orchestrator.start(newNode.id, {
+                task: worktreeDrop.card.title,
+                markdown: prompt,
+                worldX: 100,
+                worldY: 100,
+                workspacePath: worktreePath,
+              })
+            }
+          }}
+          onClose={() => setWorktreeDrop(null)}
+        />
       )}
       <div
         style={{

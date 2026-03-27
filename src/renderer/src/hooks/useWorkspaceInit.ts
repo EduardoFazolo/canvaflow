@@ -5,11 +5,13 @@ import { useNodeStore, NodeData, NodeType } from '../stores/nodeStore'
 import { useCameraStore, Camera } from '../stores/cameraStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivationStore } from '../stores/activationStore'
+import { useViewStore } from '../stores/viewStore'
+import { initCanvasManager, onWorkspaceSwitch } from '../stores/canvasManager'
 
 // Activate nodes after React has had a chance to mount the components.
 // Two rAF frames ensures the DOM commit + paint cycle completes first.
 // Nodes are queued and staggered — visible nodes activate first, off-screen nodes later.
-function activateNodesAfterMount(nodeIds: string[], nodes?: Map<string, NodeData>): void {
+export function activateNodesAfterMount(nodeIds: string[], nodes?: Map<string, NodeData>): void {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       // Determine which nodes are currently visible in the viewport
@@ -47,7 +49,7 @@ const _workspaceCameraCache = new Map<string, Camera>()
 // Convert DB row → NodeData
 // ---------------------------------------------------------------------------
 
-function rowToNode(row: any): NodeData {
+export function rowToNode(row: any): NodeData {
   return {
     id: row.id,
     type: row.type as NodeType,
@@ -142,7 +144,11 @@ export function useWorkspaceInit(): void {
       // Load full canvas for the active workspace
       if (activeId) {
         await loadWorkspaceCanvas(activeId)
+        initCanvasManager(activeId)
       }
+
+      // Restore persisted worktree view tabs
+      await useViewStore.getState().loadPersistedViews()
     }
 
     init()
@@ -154,6 +160,9 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
   const api = window
 
   try {
+    // Handle canvas manager state for workspace switch
+    onWorkspaceSwitch(workspaceId)
+
     // Save current workspace's live camera before switching away
     const currentWsId = useNodeStore.getState().activeWorkspaceId
     if (currentWsId && currentWsId !== workspaceId) {
