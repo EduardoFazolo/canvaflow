@@ -11,6 +11,7 @@ import { KanbanDropModal, type KanbanDropPayload } from './KanbanDropModal'
 import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
 import { CardDetailModal } from './CardDetailModal'
 import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
+import { buildTaskPrompt } from '../contentExtractor'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -950,11 +951,9 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             // 5. Close modal
             setWorktreeDrop(null)
 
-            // 6. Build the task prompt
-            const basePrompt = worktreeDrop.card.description
-              ? `${worktreeDrop.card.title}\n\n${worktreeDrop.card.description}`
-              : worktreeDrop.card.title
-            const prompt = basePrompt + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
+            // 6. Build the task prompt (full content, not truncated description)
+            const extracted = buildTaskPrompt(worktreeDrop.card)
+            const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
             // 7. Create the agent node EXPLICITLY in the worktree canvas
             if (config.agentId === 'claude') {

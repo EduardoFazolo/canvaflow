@@ -165,10 +165,14 @@ export function coordinatorOnData(nodeId: string, data: string, writeFn: (data: 
           agent.buffer = ''
           emitCoordinatorStatus(nodeId, 'injecting-task', 'Claude ready, sending task')
           setTimeout(() => {
-            // Write the task text, then \r to submit (Enter key in PTY is \r, not \n)
-            agent.writeFn?.(agent.task + '\r')
-            agent.phase = 'working'
-            emitCoordinatorStatus(nodeId, 'working', 'Task sent')
+            // Bracketed paste so multiline text is treated as a single input
+            agent.writeFn?.('\x1b[200~' + agent.task + '\x1b[201~')
+            // Send Enter separately — Claude Code needs the paste to finish processing first
+            setTimeout(() => {
+              agent.writeFn?.('\r')
+              agent.phase = 'working'
+              emitCoordinatorStatus(nodeId, 'working', 'Task sent')
+            }, 150)
           }, 300)
           return
         }

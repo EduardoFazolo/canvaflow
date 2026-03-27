@@ -1,5 +1,6 @@
-import { unlink } from 'fs/promises'
-import { join } from 'path'
+import { readFile, readdir, symlink, mkdir, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
+import { join, dirname } from 'path'
 import simpleGit from 'simple-git'
 import type { IpcMainLike } from '../../types'
 
@@ -14,6 +15,59 @@ const gitCache = new Map<string, ReturnType<typeof simpleGit>>()
 function git(rootPath: string) {
   if (!gitCache.has(rootPath)) gitCache.set(rootPath, simpleGit(rootPath))
   return gitCache.get(rootPath)!
+}
+
+/**
+ * Symlink gitignored files/directories from the original repo into a worktree.
+ * If .worktreeinclude exists, only those patterns are linked; otherwise all
+ * top-level gitignored items are linked (skipping common junk).
+ */
+async function symlinkGitignoredFiles(
+  rootPath: string,
+  worktreePath: string,
+  g: ReturnType<typeof simpleGit>,
+): Promise<void> {
+  try {
+    const includeFile = join(rootPath, '.worktreeinclude')
+    let items: string[] = []
+
+    if (existsSync(includeFile)) {
+      const content = await readFile(includeFile, 'utf-8')
+      const patterns = content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+      // Expand glob-like patterns by listing matching files in rootPath
+      for (const pattern of patterns) {
+        // Simple: treat each pattern as a literal path (covers .env, node_modules, prisma/generated, etc.)
+        if (existsSync(join(rootPath, pattern))) {
+          items.push(pattern)
+        }
+      }
+    } else {
+      // Fallback: get all top-level gitignored items
+      const skipRe = /^\.(claude|venv|pythonenv|idea|vscode|DS_Store)|^(bin|lib|__pycache__)$/
+      try {
+        const output = await g.raw(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'])
+        const seen = new Set<string>()
+        for (const line of output.split('\n')) {
+          const item = line.replace(/\/$/, '').trim()
+          if (!item) continue
+          // Only top-level entries
+          const topLevel = item.split('/')[0]
+          if (seen.has(topLevel)) continue
+          seen.add(topLevel)
+          if (skipRe.test(topLevel)) continue
+          items.push(topLevel)
+        }
+      } catch { /* ignore */ }
+    }
+
+    for (const item of items) {
+      const original = join(rootPath, item)
+      const target = join(worktreePath, item)
+      if (!existsSync(original) || existsSync(target)) continue
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(original, target)
+    }
+  } catch { /* non-fatal — worktree still usable, just missing some files */ }
 }
 
 /** Parse merge-tree output to extract conflicting files (exported for testing) */
@@ -200,11 +254,30 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
   // ---------------------------------------------------------------------------
 
   ipc.handle('git:wt:add', async (_e, rootPath: string, branchName: string, baseBranch?: string): Promise<string> => {
-    const worktreePath = join(rootPath, '.worktrees', branchName)
     const g = git(rootPath)
-    const args = ['worktree', 'add', '-b', branchName, worktreePath]
+
+    // Find a unique branch name: append -1, -2, etc. if it already exists
+    let finalName = branchName
+    let suffix = 1
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        await g.raw(['rev-parse', '--verify', `refs/heads/${finalName}`])
+        // Branch exists — try next suffix
+        finalName = `${branchName}-${suffix++}`
+      } catch {
+        break // Branch doesn't exist, we can use it
+      }
+    }
+
+    const worktreePath = join(rootPath, '.worktrees', finalName)
+    const args = ['worktree', 'add', '-b', finalName, worktreePath]
     if (baseBranch) args.push(baseBranch)
     await g.raw(args)
+
+    // Symlink gitignored files so the worktree is runnable immediately
+    await symlinkGitignoredFiles(rootPath, worktreePath, g)
+
     return worktreePath
   })
 

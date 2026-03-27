@@ -1090,7 +1090,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               sessionId={sessionId}
               nodeId={node.id}
               onChange={handleSessionChange}
-              onOpen={freeze}
+              onOpen={() => freeze({ forceHide: true })}
               onClose={scheduleUnfreeze}
             />
           </div>
