@@ -68,11 +68,15 @@ export function Canvas(): React.ReactElement {
       if (!hitNode) return
       if ((e.target as HTMLElement).closest('[data-no-canvas-gesture]')) return
 
+      // Only zoom-fit / zoom-out when double-tapping the window title bar,
+      // so normal double-clicks (e.g. select-all in text) are not hijacked.
+      const onTitleBar = !!(e.target as HTMLElement).closest('[data-node-titlebar]')
+
       const now = Date.now()
       const isDoubleTap = hitNode.id === tap.lastNodeId && now - tap.lastTime < 350
       tap.lastTime = isDoubleTap ? 0 : now
       tap.lastNodeId = hitNode.id
-      if (!isDoubleTap) return
+      if (!isDoubleTap || !onTitleBar) return
 
       if (e.metaKey && e.shiftKey) {
         zoomExit()
