@@ -135,21 +135,17 @@ function CardItem({
           setModalOpen(true)
         }}
         style={{
-          background: conflictingFiles ? 'rgba(239,68,68,0.04)' : '#1a1a1a',
-          border: conflictingFiles
-            ? '1px solid rgba(239,68,68,0.3)'
-            : worktreeView ? '1px solid rgba(34,211,238,0.15)' : '1px solid transparent',
+          background: conflictingFiles ? 'rgba(239,68,68,0.04)' : (hovered ? '#1e1e1e' : '#1a1a1a'),
+          border: conflictingFiles ? '1px solid rgba(239,68,68,0.3)' : 'none',
           borderRadius: 6,
-          padding: '8px 10px',
+          padding: conflictingFiles ? '8px 10px' : '9px 11px',
           cursor: (worktreeView || closedView) ? 'pointer' : 'grab',
-          transition: 'border-color 0.12s, background 0.12s',
+          transition: 'background 0.12s',
           position: 'relative',
           outline: 'none',
-          ...(hovered ? {
-            borderColor: conflictingFiles
-              ? 'rgba(239,68,68,0.5)'
-              : worktreeView ? 'rgba(34,211,238,0.3)' : 'transparent',
-            background: conflictingFiles ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
+          ...(hovered && conflictingFiles ? {
+            borderColor: 'rgba(239,68,68,0.5)',
+            background: 'rgba(239,68,68,0.07)',
           } : {}),
         }}
       >
