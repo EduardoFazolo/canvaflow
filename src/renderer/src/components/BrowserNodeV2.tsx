@@ -6,7 +6,6 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useActivationStore } from '../stores/activationStore'
 import { NodePlaceholder, ActivationFade } from './NodePlaceholder'
 import { registerBrowserPaster, unregisterBrowserPaster } from '../browserRegistry'
-import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
 import { useCanvasViewportStore } from '../stores/canvasViewportStore'
 import {
   beginBrowserFreeze,
@@ -798,8 +797,6 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   useEffect(() => {
     const unsub = window.browser.onCanvasEvent((eventNodeId, channel, data) => {
       if (eventNodeId !== node.id) return
-      if (channel === 'canvas:double-tap') zoomFitNode(node.id)
-      if (channel === 'canvas:zoom-exit') zoomExit()
       if (channel === 'canvas:wheel') {
         const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = data as any
         const wvRect = webviewAreaRef.current?.getBoundingClientRect()

@@ -1,26 +1,6 @@
 import { ipcRenderer } from 'electron'
 
 // ---------------------------------------------------------------------------
-// Double-tap → canvas zoom gesture
-// ---------------------------------------------------------------------------
-
-let lastTapTime = 0
-document.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return
-  const now = Date.now()
-  if (now - lastTapTime < 350) {
-    lastTapTime = 0
-    if (e.metaKey && e.shiftKey) {
-      ipcRenderer.sendToHost('canvas:zoom-exit', {})
-    } else {
-      ipcRenderer.sendToHost('canvas:double-tap', {})
-    }
-  } else {
-    lastTapTime = now
-  }
-}, { capture: true })
-
-// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
