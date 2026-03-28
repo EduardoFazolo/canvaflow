@@ -984,6 +984,39 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const cwd = workspace?.path
             if (!cwd) throw new Error('No active workspace')
 
+            // Build the task prompt (full content, not truncated description)
+            const extracted = buildTaskPrompt(worktreeDrop.card)
+            const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
+
+            if (config.workOnMain) {
+              // --- Work on main: no worktree, spawn agent on current canvas ---
+              moveCard(worktreeDrop.sourceColId, worktreeDrop.targetColId, worktreeDrop.card.id)
+              setWorktreeDrop(null)
+
+              if (config.agentId === 'claude') {
+                const newNode = useNodeStore.getState().add('claude', 100, 100, {
+                  cwd,
+                  claudeFlags: '--dangerously-skip-permissions',
+                })
+                window.coordinator.register(newNode.id, prompt)
+              } else if (config.agentId === 'orchestrate') {
+                const newNode = useNodeStore.getState().add('orchestrator', 100, 100, {
+                  task: worktreeDrop.card.title,
+                  status: 'idle',
+                  subagentIds: [],
+                })
+                window.orchestrator.start(newNode.id, {
+                  task: worktreeDrop.card.title,
+                  markdown: prompt,
+                  worldX: 100,
+                  worldY: 100,
+                  workspacePath: cwd,
+                })
+              }
+              return
+            }
+
+            // --- Worktree path ---
             // 1. Create the worktree (auto-retry with suffix if branch name is taken)
             const baseBranch = config.branchFromMain ? 'main' : undefined
             let branchName = config.branchName
@@ -1022,11 +1055,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             // 5. Close modal
             setWorktreeDrop(null)
 
-            // 6. Build the task prompt (full content, not truncated description)
-            const extracted = buildTaskPrompt(worktreeDrop.card)
-            const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
-
-            // 7. Create the agent node EXPLICITLY in the worktree canvas
+            // 6. Create the agent node EXPLICITLY in the worktree canvas
             if (config.agentId === 'claude') {
               const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
                 cwd: worktreePath,

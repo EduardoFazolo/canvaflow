@@ -8,6 +8,8 @@ export interface WorktreeConfig {
   agentId: 'orchestrate' | 'claude'
   branchName: string
   branchFromMain: boolean
+  /** Skip worktree — run agent directly on main/current branch */
+  workOnMain?: boolean
 }
 
 interface Props {
@@ -45,6 +47,7 @@ const AGENTS = [
 export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.ReactElement {
   const [branchName, setBranchName] = useState(titleToBranchName(card.title))
   const [branchFromMain, setBranchFromMain] = useState(false)
+  const [workOnMain, setWorkOnMain] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [isRepo, setIsRepo] = useState(true)
@@ -60,16 +63,16 @@ export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.R
   }, [workspace?.path])
 
   const handleStart = useCallback(async (agentId: 'orchestrate' | 'claude') => {
-    if (!branchName.trim()) return
+    if (!workOnMain && !branchName.trim()) return
     setLoading(true)
     setError('')
     try {
-      await onConfirm({ agentId, branchName: branchName.trim(), branchFromMain })
+      await onConfirm({ agentId, branchName: branchName.trim(), branchFromMain, workOnMain })
     } catch (e: any) {
       setError(e?.message ?? String(e))
       setLoading(false)
     }
-  }, [branchName, branchFromMain, onConfirm])
+  }, [branchName, branchFromMain, workOnMain, onConfirm])
 
   return createPortal(
     <div
@@ -114,54 +117,98 @@ export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.R
           )}
         </div>
 
-        {/* Branch name (editable) */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{
-            fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
-          }}>
-            Branch name
+        {/* Branch name (editable) — hidden when working on main */}
+        {!workOnMain && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{
+              fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
+            }}>
+              Branch name
+            </div>
+            <input
+              value={branchName}
+              onChange={(e) => setBranchName(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 6,
+                color: 'rgba(34,211,238,0.85)',
+                fontSize: 12,
+                fontFamily: 'monospace',
+                padding: '7px 10px',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
-          <input
-            value={branchName}
-            onChange={(e) => setBranchName(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            style={{
-              width: '100%',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 6,
-              color: 'rgba(34,211,238,0.85)',
-              fontSize: 12,
-              fontFamily: 'monospace',
-              padding: '7px 10px',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-        </div>
+        )}
 
-        {/* Branch from main toggle */}
+        {/* Branch from main toggle — hidden when working on main */}
+        {!workOnMain && (
+          <div style={{
+            marginBottom: 16, padding: '10px 12px',
+            background: 'rgba(255,255,255,0.03)', borderRadius: 8,
+            border: `1px solid ${branchFromMain ? 'rgba(34,211,238,0.35)' : 'rgba(255,255,255,0.07)'}`,
+            opacity: isRepo ? 1 : 0.4, transition: 'border-color 0.15s',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div
+                onClick={() => isRepo && setBranchFromMain((v) => !v)}
+                style={{
+                  width: 30, height: 17, borderRadius: 9, flexShrink: 0,
+                  background: branchFromMain ? '#0891b2' : 'rgba(255,255,255,0.12)',
+                  position: 'relative', cursor: isRepo ? 'pointer' : 'default',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 2,
+                  left: branchFromMain ? 15 : 2,
+                  width: 13, height: 13, borderRadius: '50%',
+                  background: '#fff', transition: 'left 0.15s',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>
+                  Branch from main
+                </div>
+                <div style={{
+                  fontSize: 11, marginTop: 2,
+                  color: branchFromMain ? 'rgba(34,211,238,0.65)' : 'rgba(255,255,255,0.28)',
+                  fontFamily: 'monospace',
+                }}>
+                  {branchFromMain ? 'Will branch from main' : 'Will branch from current HEAD'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Work on main toggle */}
         <div style={{
           marginBottom: 16, padding: '10px 12px',
           background: 'rgba(255,255,255,0.03)', borderRadius: 8,
-          border: `1px solid ${branchFromMain ? 'rgba(34,211,238,0.35)' : 'rgba(255,255,255,0.07)'}`,
+          border: `1px solid ${workOnMain ? 'rgba(251,191,36,0.35)' : 'rgba(255,255,255,0.07)'}`,
           opacity: isRepo ? 1 : 0.4, transition: 'border-color 0.15s',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div
-              onClick={() => isRepo && setBranchFromMain((v) => !v)}
+              onClick={() => isRepo && setWorkOnMain((v) => !v)}
               style={{
                 width: 30, height: 17, borderRadius: 9, flexShrink: 0,
-                background: branchFromMain ? '#0891b2' : 'rgba(255,255,255,0.12)',
+                background: workOnMain ? '#d97706' : 'rgba(255,255,255,0.12)',
                 position: 'relative', cursor: isRepo ? 'pointer' : 'default',
                 transition: 'background 0.15s',
               }}
             >
               <div style={{
                 position: 'absolute', top: 2,
-                left: branchFromMain ? 15 : 2,
+                left: workOnMain ? 15 : 2,
                 width: 13, height: 13, borderRadius: '50%',
                 background: '#fff', transition: 'left 0.15s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
@@ -169,14 +216,14 @@ export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.R
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>
-                Branch from main
+                Work on main
               </div>
               <div style={{
                 fontSize: 11, marginTop: 2,
-                color: branchFromMain ? 'rgba(34,211,238,0.65)' : 'rgba(255,255,255,0.28)',
+                color: workOnMain ? 'rgba(251,191,36,0.65)' : 'rgba(255,255,255,0.28)',
                 fontFamily: 'monospace',
               }}>
-                {branchFromMain ? 'Will branch from main' : 'Will branch from current HEAD'}
+                {workOnMain ? 'No worktree — runs on current branch' : 'Will create a worktree branch'}
               </div>
             </div>
           </div>
