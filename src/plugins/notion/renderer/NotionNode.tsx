@@ -7,7 +7,8 @@ import { useSessionStore } from '../../../renderer/src/stores/sessionStore'
 import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholder'
 import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
-import { getPreparedNotionExternalDrag, primeNotionExternalDrag } from '../utils/notionDrag'
+import { getPreparedNotionExternalDrag, primeNotionExternalDrag, primeNotionPage } from '../utils/notionDrag'
+import { notionChunkToTiptap } from '../utils/notionToTiptap'
 import { NotionDropModal, NotionDropPayload } from './NotionDropModal'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
 import { useKanbanStore } from '../../kanban/store'
@@ -374,6 +375,71 @@ export function NotionNode({ node }: Props): React.ReactElement {
       const target = dropTargetRef.current
 
       if (target) {
+        // Kanban: create card immediately, load content + images async
+        if (target.nodeType === 'kanban') {
+          const cardId = nanoid(8)
+          const addCardNow = () => {
+            const { state, setState } = useKanbanStore.getState()
+            const board = state.boards.find((b) => b.id === state.activeBoardId)
+            if (!board || board.columns.length === 0) return false
+            const firstCol = board.columns[0]
+            const newColumns = board.columns.map((c) =>
+              c.id === firstCol.id ? { ...c, cards: [...c.cards, { id: cardId, title }] } : c
+            )
+            setState({ ...state, boards: state.boards.map((b) => b.id === board.id ? { ...b, columns: newColumns } : b) })
+            return true
+          }
+          if (!addCardNow()) return
+
+          void (async () => {
+            try {
+              const chunk = await primeNotionPage(partition, pageId)
+              const imageMap: Record<string, string> = {}
+
+              const patchCard = (map: Record<string, string>) => {
+                const { state, setState } = useKanbanStore.getState()
+                const board = state.boards.find((b) => b.id === state.activeBoardId)
+                if (!board) return
+                const content = notionChunkToTiptap(pageId, chunk.recordMap.block, map)
+                const plainText = content.content?.map((n: any) =>
+                  n.content?.map((c: any) => c.text ?? '').join('') ?? ''
+                ).join('\n').trim()
+                const newBoards = state.boards.map((b) =>
+                  b.id === board.id
+                    ? { ...b, columns: b.columns.map((col) => ({
+                        ...col,
+                        cards: col.cards.map((c) =>
+                          c.id === cardId ? { ...c, content, description: plainText?.slice(0, 200) || undefined } : c
+                        ),
+                      })) }
+                    : b
+                )
+                setState({ ...state, boards: newBoards })
+              }
+
+              patchCard(imageMap)
+
+              const imageBlocks = Object.values(chunk.recordMap.block)
+                .filter((b: any) => b.value.type === 'image')
+                .map((b: any) => ({
+                  blockId: b.value.id as string,
+                  src: (b.value.format?.display_source ?? b.value.properties?.source?.[0]?.[0]) as string,
+                }))
+                .filter((item): item is { blockId: string; src: string } => typeof item.src === 'string')
+
+              await Promise.all(imageBlocks.map(async ({ blockId, src }) => {
+                try {
+                  const dataUrl = await window.notion.fetchImage(partition, src, blockId)
+                  imageMap[src] = dataUrl
+                  patchCard({ ...imageMap })
+                } catch {}
+              }))
+            } catch {}
+          })()
+          return
+        }
+
+        // Other targets need the plain-text export
         let text = title
         const prepared = getPreparedNotionExternalDrag(partition, pageId)
         if (prepared) {
@@ -392,19 +458,6 @@ export function NotionNode({ node }: Props): React.ReactElement {
         }
         if (target.nodeType === 'browser') {
           await pasteIntoBrowser(target.nodeId, text)
-          return
-        }
-        if (target.nodeType === 'kanban') {
-          const { state, setState } = useKanbanStore.getState()
-          const board = state.boards.find((b) => b.id === state.activeBoardId)
-          if (board && board.columns.length > 0) {
-            const firstCol = board.columns[0]
-            const newCard = { id: nanoid(8), title, description: text !== title ? text : undefined }
-            const newColumns = board.columns.map((c) =>
-              c.id === firstCol.id ? { ...c, cards: [...c.cards, newCard] } : c
-            )
-            setState({ ...state, boards: state.boards.map((b) => b.id === board.id ? { ...b, columns: newColumns } : b) })
-          }
           return
         }
       }
