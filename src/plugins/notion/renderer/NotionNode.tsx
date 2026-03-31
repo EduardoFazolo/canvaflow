@@ -10,6 +10,8 @@ import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
 import { getPreparedNotionExternalDrag, primeNotionExternalDrag } from '../utils/notionDrag'
 import { NotionDropModal, NotionDropPayload } from './NotionDropModal'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
+import { useKanbanStore } from '../../kanban/store'
+import { nanoid } from 'nanoid'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
 
 declare global {
@@ -266,7 +268,7 @@ const btnHover: React.CSSProperties = {
 
 interface DragDropTarget {
   nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude'
+  nodeType: 'terminal' | 'browser' | 'claude' | 'kanban'
   title: string
   left: number
   top: number
@@ -322,7 +324,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
     const candidates = Array.from(useNodeStore.getState().nodes.values())
       .filter((candidate) =>
         candidate.id !== node.id &&
-        (candidate.type === 'terminal' || candidate.type === 'browser' || candidate.type === 'claude')
+        (candidate.type === 'terminal' || candidate.type === 'browser' || candidate.type === 'claude' || candidate.type === 'kanban')
       )
       .map((candidate) => {
         const left = canvasRect.left + camera.x + candidate.x * camera.zoom
@@ -344,7 +346,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
 
     return {
       nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude',
+      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude' | 'kanban',
       title: hit.candidate.title,
       left: hit.left,
       top: hit.top,
@@ -390,6 +392,19 @@ export function NotionNode({ node }: Props): React.ReactElement {
         }
         if (target.nodeType === 'browser') {
           await pasteIntoBrowser(target.nodeId, text)
+          return
+        }
+        if (target.nodeType === 'kanban') {
+          const { state, setState } = useKanbanStore.getState()
+          const board = state.boards.find((b) => b.id === state.activeBoardId)
+          if (board && board.columns.length > 0) {
+            const firstCol = board.columns[0]
+            const newCard = { id: nanoid(8), title, description: text !== title ? text : undefined }
+            const newColumns = board.columns.map((c) =>
+              c.id === firstCol.id ? { ...c, cards: [...c.cards, newCard] } : c
+            )
+            setState({ ...state, boards: state.boards.map((b) => b.id === board.id ? { ...b, columns: newColumns } : b) })
+          }
           return
         }
       }
@@ -723,7 +738,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
           boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
           textAlign: 'center',
         }}>
-          {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude' : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal' : 'Drop to copy into browser'}
+          {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude' : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal' : dropTarget.nodeType === 'kanban' ? 'Drop to add to Kanban' : 'Drop to copy into browser'}
         </div>
       </div>,
       document.body
