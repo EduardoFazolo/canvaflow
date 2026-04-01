@@ -10,17 +10,22 @@ export function GridRenderer({ camera }: Props): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<Application | null>(null)
   const gridRef = useRef<Graphics | null>(null)
+  const cameraRef = useRef(camera)
+  cameraRef.current = camera
 
   useEffect(() => {
     if (!containerRef.current) return
     const container = containerRef.current
     let cancelled = false
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
     const app = new Application()
+    const w = container.offsetWidth || window.innerWidth
+    const h = container.offsetHeight || window.innerHeight
 
     app.init({
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: w,
+      height: h,
       backgroundColor: 0x0d0d0d,
       antialias: false,
       resolution: window.devicePixelRatio || 1,
@@ -41,11 +46,37 @@ export function GridRenderer({ camera }: Props): React.ReactElement {
       gridRef.current = grid
       appRef.current = app
 
-      drawGrid(grid, window.innerWidth, window.innerHeight, camera)
+      drawGrid(grid, app.screen.width, app.screen.height, cameraRef.current)
+
+      // Resize PixiJS after the sidebar animation finishes (200ms CSS transition).
+      // Debounced to 250ms so we don't resize on every intermediate frame, which
+      // would cause a black flash during the animation.
+      // After resize(), autoDensity resets canvas CSS to fixed px — re-apply 100%.
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0]
+        if (!entry) return
+        const { width, height } = entry.contentRect
+        if (width < 1 || height < 1) return
+        if (resizeTimer) clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => {
+          resizeTimer = null
+          if (!appRef.current || !gridRef.current) return
+          appRef.current.renderer.resize(width, height)
+          const c = appRef.current.canvas as HTMLCanvasElement
+          c.style.width = '100%'
+          c.style.height = '100%'
+          drawGrid(gridRef.current, appRef.current.screen.width, appRef.current.screen.height, cameraRef.current)
+        }, 250)
+      })
+      observer.observe(container)
+      ;(container as any).__gridObserver = observer
     })
 
     return () => {
       cancelled = true
+      if (resizeTimer) clearTimeout(resizeTimer)
+      const obs = (container as any).__gridObserver as ResizeObserver | undefined
+      if (obs) { obs.disconnect(); delete (container as any).__gridObserver }
       if (appRef.current) {
         try { appRef.current.destroy(true) } catch {}
         appRef.current = null
