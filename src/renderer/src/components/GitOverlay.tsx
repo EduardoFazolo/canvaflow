@@ -4,7 +4,7 @@
  * and provides: branch info, changed-file links, stage-all, commit, and push.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { GitBranch, ArrowUpFromLine, GitCommitHorizontal, GitPullRequestArrow, Plus, Minus, X, ChevronDown, ChevronUp, Loader2, Check, AlertCircle } from 'lucide-react'
+import { GitBranch, ArrowUpFromLine, GitCommitHorizontal, GitPullRequestArrow, Plus, Minus, X, ChevronDown, ChevronUp, Loader2, Check, AlertCircle, Undo2 } from 'lucide-react'
 import { useNodeStore } from '../stores/nodeStore'
 import { useCameraStore } from '../stores/cameraStore'
 // Extension → Monaco language ID
@@ -123,9 +123,10 @@ interface FileRowProps {
   onOpenDiff: (filePath: string, gitPath: string) => void
   onStage: (filePath: string) => void
   onUnstage: (filePath: string) => void
+  onDiscard: (filePath: string) => void
 }
 
-function FileRow({ file, gitPath, onOpenDiff, onStage, onUnstage }: FileRowProps): React.ReactElement {
+function FileRow({ file, gitPath, onOpenDiff, onStage, onUnstage, onDiscard }: FileRowProps): React.ReactElement {
   const { char, color, staged } = statusChar(file)
   const [hovered, setHovered] = useState(false)
 
@@ -195,50 +196,77 @@ function FileRow({ file, gitPath, onOpenDiff, onStage, onUnstage }: FileRowProps
         </span>
       )}
 
-      {/* Fixed-size slot so the row height never changes on hover */}
-      <div style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {hovered ? (
+      {/* Action buttons — pushed to far right */}
+      <div style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {hovered && !staged ? (
           <button
             onClick={(e) => {
               e.stopPropagation()
-              staged ? onUnstage(file.path) : onStage(file.path)
+              if (!confirm(`Discard changes to ${fileName(file.path)}?`)) return
+              onDiscard(file.path)
             }}
-            title={staged ? 'Unstage file' : 'Stage file'}
+            title="Discard change"
             style={{
               width: 20, height: 20,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: staged ? 'rgba(251,191,36,0.12)' : 'rgba(74,222,128,0.12)',
-              border: `1px solid ${staged ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.3)'}`,
+              background: 'rgba(248,113,113,0.12)',
+              border: '1px solid rgba(248,113,113,0.3)',
               borderRadius: 5,
               cursor: 'pointer',
-              color: staged ? '#fbbf24' : '#4ade80',
+              color: '#f87171',
               padding: 0,
               transition: 'background 0.1s ease',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = staged ? 'rgba(251,191,36,0.22)' : 'rgba(74,222,128,0.22)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = staged ? 'rgba(251,191,36,0.12)' : 'rgba(74,222,128,0.12)'
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(248,113,113,0.22)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(248,113,113,0.12)' }}
           >
-            {staged ? <Minus size={11} /> : <Plus size={11} />}
+            <Undo2 size={11} />
           </button>
-        ) : staged ? (
-          <span style={{
-            fontSize: 9,
-            color: '#4ade80',
-            background: '#4ade8018',
-            border: '1px solid #4ade8033',
-            borderRadius: 3,
-            padding: '1px 4px',
-            fontFamily: 'ui-monospace, Menlo, monospace',
-            letterSpacing: '0.04em',
-            whiteSpace: 'nowrap',
-          }}>
-            ✓
-          </span>
         ) : null}
+        <div style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {hovered ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                staged ? onUnstage(file.path) : onStage(file.path)
+              }}
+              title={staged ? 'Unstage file' : 'Stage file'}
+              style={{
+                width: 20, height: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: staged ? 'rgba(251,191,36,0.12)' : 'rgba(74,222,128,0.12)',
+                border: `1px solid ${staged ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.3)'}`,
+                borderRadius: 5,
+                cursor: 'pointer',
+                color: staged ? '#fbbf24' : '#4ade80',
+                padding: 0,
+                transition: 'background 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = staged ? 'rgba(251,191,36,0.22)' : 'rgba(74,222,128,0.22)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = staged ? 'rgba(251,191,36,0.12)' : 'rgba(74,222,128,0.12)'
+              }}
+            >
+              {staged ? <Minus size={11} /> : <Plus size={11} />}
+            </button>
+          ) : staged ? (
+            <span style={{
+              fontSize: 9,
+              color: '#4ade80',
+              background: '#4ade8018',
+              border: '1px solid #4ade8033',
+              borderRadius: 3,
+              padding: '1px 4px',
+              fontFamily: 'ui-monospace, Menlo, monospace',
+              letterSpacing: '0.04em',
+              whiteSpace: 'nowrap',
+            }}>
+              ✓
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -994,6 +1022,7 @@ export function GitOverlay(): React.ReactElement | null {
                     onOpenDiff={openDiff}
                     onStage={async (fp) => { await window.git.stage(gitPath, [fp]); fetchStatus(gitPath) }}
                     onUnstage={async (fp) => { await window.git.unstage(gitPath, [fp]); fetchStatus(gitPath) }}
+                    onDiscard={async (fp) => { await window.git.discard(gitPath, [fp]); fetchStatus(gitPath) }}
                   />
                 ))}
               </div>
