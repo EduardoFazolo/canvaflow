@@ -1239,13 +1239,14 @@ function Column({
         flex: '1 0 240px',
         display: 'flex',
         flexDirection: 'column',
-        background: dropHighlight ? hexToRgba(column.color, 0.07) : '#141414',
+        background: dropHighlight ? hexToRgba(column.color, 0.08) : '#141414',
         borderRadius: 8,
         border: dropHighlight
-          ? `1px solid ${hexToRgba(column.color, 0.3)}`
+          ? `1px solid ${hexToRgba(column.color, 0.35)}`
           : '1px solid rgba(255,255,255,0.06)',
         overflow: 'hidden',
-        transition: 'background 0.18s ease-out, border-color 0.18s ease-out',
+        transform: dropHighlight ? 'scale(1.015)' : 'scale(1)',
+        transition: 'background 0.2s ease-out, border-color 0.2s ease-out, transform 0.2s ease-out',
       }}
     >
       <div style={{
@@ -1253,8 +1254,7 @@ function Column({
         background: column.color,
         borderRadius: '8px 8px 0 0',
         flexShrink: 0,
-        boxShadow: dropHighlight ? `0 0 8px ${hexToRgba(column.color, 0.5)}` : 'none',
-        transition: 'height 0.18s ease-out, box-shadow 0.18s ease-out',
+        transition: 'height 0.2s ease-out',
       }} />
 
       <ColumnHeader
