@@ -363,6 +363,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   const refreshSnapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const canvasInteractionActiveRef = useRef(false)
   const shouldShowRef = useRef(false)
+  const dropdownOpenRef = useRef(false)
 
   // Track camera zoom without re-rendering on every change
   const cameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
@@ -571,7 +572,7 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
   const scheduleUnfreeze = useCallback(() => {
     if (moveEndTimerRef.current) clearTimeout(moveEndTimerRef.current)
     moveEndTimerRef.current = setTimeout(() => {
-      if (shouldShowRef.current) {
+      if (shouldShowRef.current && !dropdownOpenRef.current) {
         showLiveView()
       }
     }, 150)
@@ -1090,8 +1091,8 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               sessionId={sessionId}
               nodeId={node.id}
               onChange={handleSessionChange}
-              onOpen={() => freeze({ forceHide: true })}
-              onClose={scheduleUnfreeze}
+              onOpen={() => { dropdownOpenRef.current = true; freeze({ forceHide: true }) }}
+              onClose={() => { dropdownOpenRef.current = false; scheduleUnfreeze() }}
             />
           </div>
 
