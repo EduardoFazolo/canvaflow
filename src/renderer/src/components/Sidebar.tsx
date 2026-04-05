@@ -292,7 +292,10 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
           }} />
         )}
 
-        <span style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
+        <span
+          style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0, cursor: 'pointer' }}
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
+        >
           <ChevronIcon open={open} />
         </span>
 
