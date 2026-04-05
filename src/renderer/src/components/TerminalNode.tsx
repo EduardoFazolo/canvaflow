@@ -101,6 +101,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   const renderInspectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const baseFontSizeRef = useRef<number>(13)
   const statusBufferRef = useRef('')
+  const isAtBottomRef = useRef(true)
   const { update, focusedNodeId, setFocusedNodeId } = useNodeStore()
   const focusedNodeIdRef = useRef(focusedNodeId)
   useEffect(() => { focusedNodeIdRef.current = focusedNodeId }, [focusedNodeId])
@@ -169,6 +170,16 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     fitAddon.fit()
     loadRenderer()
 
+    // Track whether the viewport is pinned to the bottom so we can
+    // re-pin after writes (prevents the "jumps to top" bug on heavy output).
+    const viewport = term.element?.querySelector('.xterm-viewport') as HTMLElement | null
+    if (viewport) {
+      viewport.addEventListener('scroll', () => {
+        const gap = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+        isAtBottomRef.current = gap < 5
+      })
+    }
+
     xtermRef.current = term
     fitAddonRef.current = fitAddon
     serializeAddonRef.current = serializeAddon
@@ -227,7 +238,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     // Restore previous scrollback from SQLite (written before tmux output starts)
     const savedState = node.props.serializedState as string | undefined
     if (savedState) {
-      term.write(savedState)
+      term.write(savedState, () => term.scrollToBottom())
     }
 
     // Start PTY (via tmux if available)
@@ -237,7 +248,10 @@ export function TerminalNode({ node }: Props): React.ReactElement {
 
     // PTY → xterm (also signals activity to the navbar indicator)
     const unsub = window.terminal.onData(node.id, (data) => {
-      term.write(data)
+      const wasAtBottom = isAtBottomRef.current
+      term.write(data, () => {
+        if (wasAtBottom) term.scrollToBottom()
+      })
       // Mark this terminal active; auto-idles after 30s of silence
       useActivityStore.getState().markActive(node.id)
 

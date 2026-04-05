@@ -38,9 +38,11 @@ export function useKeyboardShortcuts({ onSearch, onSettings }: Options): void {
         case 'newBrowser':
           addAndFocus('browser', 400, 300)
           break
-        case 'newFiles':
-          addAndFocus('files', 350, 240)
+        case 'newFiles': {
+          const rootPath = getActiveWorkspace()?.path || ''
+          addAndFocus('files', 350, 240, rootPath ? { path: rootPath } : undefined)
           break
+        }
         case 'newClaude': {
           const cwd = getActiveWorkspace()?.path || ''
           addAndFocus('claude', 350, 240, { cwd })
