@@ -8,6 +8,27 @@ import { useCameraStore } from '../stores/cameraStore'
 import { loadWorkspaceCanvas } from '../hooks/useWorkspaceInit'
 import { getCanvasRect } from '../utils/canvasUtils'
 import { getSidebarAgentStatusUi } from '../../../modules/servers/agentic_signals/renderer/sidebarStatusUi'
+import {
+  Terminal,
+  Globe,
+  Folder,
+  FolderOpen,
+  NotionLogo,
+  Columns,
+  Notepad,
+  Code,
+  Robot,
+  Kanban,
+  AppWindow,
+  Graph,
+  TreeStructure,
+  Brain,
+  User,
+  Plus,
+  GearSix,
+  X,
+  CaretRight,
+} from '@phosphor-icons/react'
 
 function jumpToNode(node: NodeData): void {
   const zoom = Math.max(useCameraStore.getState().camera.zoom, 0.7)
@@ -23,76 +44,88 @@ function jumpToNode(node: NodeData): void {
 export const SIDEBAR_W = 240
 
 // ---------------------------------------------------------------------------
-// Icons
+// Icons (Phosphor – filled, flat colors)
 // ---------------------------------------------------------------------------
 
-function FolderIcon({ open }: { open: boolean }): React.ReactElement {
-  return open ? (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-      <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1.5 1.5H10.5C11.33 3.5 12 4.17 12 5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11.5 1 10.83 1 10V3.5z"
-        fill="rgba(255,255,255,0.25)" stroke="none"/>
-    </svg>
-  ) : (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-      <path d="M1 3.5C1 2.67 1.67 2 2.5 2H5l1.5 1.5H10.5C11.33 3.5 12 4.17 12 5v5c0 .83-.67 1.5-1.5 1.5h-8C1.67 11.5 1 10.83 1 10V3.5z"
-        stroke="rgba(255,255,255,0.3)" strokeWidth="1" fill="none"/>
-    </svg>
-  )
+const ICON_SIZE = 14
+
+const nodeIconMap: Record<string, { icon: React.ElementType; color: string }> = {
+  terminal:     { icon: Terminal,      color: '#6dba9a' },  // green
+  browser:      { icon: Globe,         color: '#7aa3d4' },  // blue
+  browserv2:    { icon: Globe,         color: '#7aa3d4' },
+  files:        { icon: Folder,        color: '#c4a24e' },  // golden
+  notion:       { icon: NotionLogo,    color: '#a0a0a0' },  // grey
+  trello:       { icon: Columns,       color: '#5b9ec9' },  // cerulean
+  note:         { icon: Notepad,       color: '#b07ec4' },  // purple
+  monaco:       { icon: Code,          color: '#d4a056' },  // amber
+  claude:       { icon: Brain,         color: '#c47a8a' },  // rose
+  orchestrator: { icon: Graph,         color: '#d08c5a' },  // burnt orange
+  subagent:     { icon: TreeStructure, color: '#8a7ec4' },  // indigo
+  kanban:       { icon: Kanban,        color: '#5aafa0' },  // teal
+  windowpicker: { icon: AppWindow,     color: '#8a95a3' },  // slate
+}
+
+function NodeTypeIcon({ type }: { type: string }): React.ReactElement {
+  const entry = nodeIconMap[type]
+  if (entry) {
+    const Icon = entry.icon
+    return <Icon size={ICON_SIZE} weight="fill" color={entry.color} style={{ flexShrink: 0 }} />
+  }
+  return <Robot size={ICON_SIZE} weight="fill" color="rgba(255,255,255,0.35)" style={{ flexShrink: 0 }} />
 }
 
 function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-      style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-      <path d="M3.5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
+    <CaretRight
+      size={12}
+      weight="bold"
+      color="currentColor"
+      style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
+    />
   )
 }
 
-function NodeTypeIcon({ type }: { type: string }): React.ReactElement {
-  if (type === 'terminal') {
-    return (
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-        <path d="M1.5 3l3 2.5-3 2.5M5.5 8h4" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    )
-  }
-  if (type === 'browser' || type === 'browserv2') {
-    return (
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-        <rect x="1" y="1" width="9" height="9" rx="2" stroke="rgba(255,255,255,0.35)" strokeWidth="1.1"/>
-        <path d="M1 4h9" stroke="rgba(255,255,255,0.35)" strokeWidth="1.1"/>
-        <circle cx="3" cy="2.5" r="0.7" fill="rgba(255,255,255,0.35)"/>
-      </svg>
-    )
-  }
-  if (type === 'files') {
-    return (
-      <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
-        <path d="M1 1.5C1 1.22 1.22 1 1.5 1H4L5 2.5H10.5C10.78 2.5 11 2.72 11 3V8.5C11 8.78 10.78 9 10.5 9H1.5C1.22 9 1 8.78 1 8.5V1.5Z" stroke="rgba(255,255,255,0.35)" strokeWidth="1.1" fill="none"/>
-      </svg>
-    )
-  }
-  if (type === 'notion') {
-    return (
-      <svg width="11" height="11" viewBox="0 0 14 14" fill="rgba(255,255,255,0.35)">
-        <path d="M3.08 2.17c1.65-.12 4.16-.18 5.62-.16 1.58.02 2.08.44 2.14 1.95.08 1.68.08 4.22 0 5.9-.06 1.48-.52 1.91-2.03 1.96-1.61.06-4.15.06-5.79 0-1.43-.05-1.95-.5-2.02-1.86-.08-1.73-.09-4.36 0-6.08.07-1.34.59-1.6 2.08-1.71Zm.45 1.36v6.95h6.94V3.53H3.53Zm1.26 1.17h3.95v.91H6.99v3.09h-.98V5.61H4.79V4.7Z"/>
-      </svg>
-    )
-  }
-  return (
-    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-      <rect x="1.5" y="1.5" width="8" height="8" rx="1.5" stroke="rgba(255,255,255,0.35)" strokeWidth="1.1"/>
-    </svg>
-  )
-}
+// ---------------------------------------------------------------------------
+// Workspace icon — shows .ico from project root if available, else folder
+// ---------------------------------------------------------------------------
 
-function PlusIcon(): React.ReactElement {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-    </svg>
-  )
+const workspaceIconCache = new Map<string, string | null>()
+
+function WorkspaceIcon({ path, open }: { path: string; open: boolean }): React.ReactElement {
+  const [iconUrl, setIconUrl] = useState<string | null>(workspaceIconCache.get(path) ?? null)
+  const [checked, setChecked] = useState(workspaceIconCache.has(path))
+
+  useEffect(() => {
+    if (checked) return
+    let cancelled = false
+    window.fs.readDir(path).then((entries) => {
+      const ico = entries.find((e) => !e.isDir && /\.ico$/i.test(e.name))
+      if (ico && !cancelled) {
+        const icoPath = path.replace(/\/$/, '') + '/' + ico.name
+        window.fs.readFileBase64(icoPath).then((b64) => {
+          if (!cancelled) {
+            const url = `data:image/x-icon;base64,${b64}`
+            workspaceIconCache.set(path, url)
+            setIconUrl(url)
+          }
+        }).catch(() => { workspaceIconCache.set(path, null) })
+      } else {
+        workspaceIconCache.set(path, null)
+      }
+      if (!cancelled) setChecked(true)
+    }).catch(() => {
+      workspaceIconCache.set(path, null)
+      if (!cancelled) setChecked(true)
+    })
+    return () => { cancelled = true }
+  }, [path, checked])
+
+  if (iconUrl) {
+    return <img src={iconUrl} width={14} height={14} style={{ borderRadius: 2, flexShrink: 0 }} />
+  }
+
+  const Icon = open ? FolderOpen : Folder
+  return <Icon size={14} weight="fill" color="rgba(255,255,255,0.3)" style={{ flexShrink: 0 }} />
 }
 
 // ---------------------------------------------------------------------------
@@ -299,8 +332,8 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
           <ChevronIcon open={open} />
         </span>
 
-        <span style={{ flexShrink: 0, marginTop: 1 }}>
-          <FolderIcon open={open} />
+        <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+          <WorkspaceIcon path={workspace.path} open={open} />
         </span>
 
         <span style={{
@@ -326,9 +359,7 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
               padding: 0, flexShrink: 0,
             }}
           >
-            <svg width="8" height="8" viewBox="0 0 8 8">
-              <path d="M1 1l6 6M7 1l-6 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
+            <X size={10} weight="bold" />
           </button>
         )}
       </div>
@@ -475,9 +506,7 @@ function NodeItem({ node, workspaceActive, onSwitchWorkspace, workspaceId }: {
           onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(255,80,80,0.9)' }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(255,255,255,0.4)' }}
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <X size={12} weight="bold" />
         </div>
       )}
     </div>
@@ -778,10 +807,7 @@ function SessionItem({ session, onRemove }: {
       onDoubleClick={() => { setRenaming(true); setNameVal(session.name) }}
     >
       {/* Profile icon */}
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-        <circle cx="5" cy="3.5" r="2" stroke="rgba(167,139,250,0.7)" strokeWidth="1.1"/>
-        <path d="M1.5 9c0-1.93 1.57-3.5 3.5-3.5S8.5 7.07 8.5 9" stroke="rgba(167,139,250,0.7)" strokeWidth="1.1" strokeLinecap="round"/>
-      </svg>
+      <User size={13} weight="fill" color="#9a84c4" style={{ flexShrink: 0 }} />
 
       {renaming ? (
         <input
@@ -882,7 +908,7 @@ function SessionsSection(): React.ReactElement {
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)' }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)' }}
         >
-          <PlusIcon />
+          <Plus size={13} weight="bold" />
         </button>
       </div>
 
@@ -957,10 +983,7 @@ function GearButton({ onClick }: { onClick: () => void }): React.ReactElement {
         padding: 0, flexShrink: 0, transition: 'background 0.1s, color 0.1s',
       }}
     >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
+      <GearSix size={15} weight="fill" />
     </button>
   )
 }
@@ -981,7 +1004,7 @@ function AddIconButton({ onClick }: { onClick: () => void }): React.ReactElement
         padding: 0, flexShrink: 0, transition: 'background 0.1s, color 0.1s',
       }}
     >
-      <PlusIcon />
+      <Plus size={13} weight="bold" />
     </button>
   )
 }
