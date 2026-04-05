@@ -1,6 +1,6 @@
-node_modules/
-out/
-dist/
+node_modules
+out
+dist
 .DS_Store
 *.log
-.worktrees/
+.worktrees
