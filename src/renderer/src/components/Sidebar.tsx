@@ -493,6 +493,7 @@ export function Sidebar(): React.ReactElement {
     startTemplateDrag, updateTemplateDragPos, endTemplateDrag } = useTemplateStore()
   const [showAdd, setShowAdd] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [libraryCollapsed, setLibraryCollapsed] = useState(false)
 
   useEffect(() => { if (!templatesLoaded) loadTemplates() }, [templatesLoaded, loadTemplates])
 
@@ -615,16 +616,22 @@ export function Sidebar(): React.ReactElement {
         {/* Library */}
         {(templates.length > 0 || draggingOverSidebar) && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{
-              padding: '7px 12px 5px',
-              fontSize: 10.5, fontWeight: 600,
-              color: draggingOverSidebar ? 'rgba(167,139,250,0.7)' : 'rgba(255,255,255,0.25)',
-              letterSpacing: '0.08em', textTransform: 'uppercase',
-              transition: 'color 0.15s',
-            }}>
+            <div
+              onClick={() => !draggingOverSidebar && setLibraryCollapsed(!libraryCollapsed)}
+              style={{
+                padding: '7px 12px 5px',
+                fontSize: 10.5, fontWeight: 600,
+                color: draggingOverSidebar ? 'rgba(167,139,250,0.7)' : 'rgba(255,255,255,0.25)',
+                letterSpacing: '0.08em', textTransform: 'uppercase',
+                transition: 'color 0.15s',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                userSelect: 'none',
+              }}
+            >
+              <ChevronIcon open={!libraryCollapsed} />
               {draggingOverSidebar ? 'Drop to save' : 'Library'}
             </div>
-            {templates.map(t => (
+            {!libraryCollapsed && templates.map(t => (
               <TemplateItem
                 key={t.id}
                 template={t}
@@ -824,6 +831,7 @@ function SessionItem({ session, onRemove }: {
 function SessionsSection(): React.ReactElement {
   const { sessions, loaded, load, add, remove } = useSessionStore()
   const [creating, setCreating] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -846,15 +854,21 @@ function SessionsSection(): React.ReactElement {
         display: 'flex', alignItems: 'center',
         padding: '7px 8px 4px 12px',
       }}>
-        <span style={{
-          flex: 1, fontSize: 10.5, fontWeight: 600,
-          color: 'rgba(255,255,255,0.25)',
-          letterSpacing: '0.08em', textTransform: 'uppercase',
-        }}>
+        <span
+          onClick={() => setCollapsed(!collapsed)}
+          style={{
+            flex: 1, fontSize: 10.5, fontWeight: 600,
+            color: 'rgba(255,255,255,0.25)',
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+            userSelect: 'none',
+          }}
+        >
+          <ChevronIcon open={!collapsed} />
           Sessions
         </span>
         <button
-          onClick={() => setCreating(true)}
+          onClick={() => { setCollapsed(false); setCreating(true) }}
           title="New session"
           style={{
             width: 20, height: 20, borderRadius: 4, border: 'none',
@@ -869,52 +883,56 @@ function SessionsSection(): React.ReactElement {
         </button>
       </div>
 
-      {creating && (
-        <div style={{ padding: '2px 8px 6px', display: 'flex', gap: 5 }}>
-          <input
-            ref={inputRef}
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate()
-              if (e.key === 'Escape') { setCreating(false); setNewName('') }
-            }}
-            onBlur={() => { if (!newName.trim()) setCreating(false) }}
-            placeholder="Session name…"
-            style={{
-              flex: 1, height: 24, borderRadius: 4,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.05)',
-              color: 'rgba(255,255,255,0.75)', fontSize: 11,
-              padding: '0 7px', outline: 'none', fontFamily: 'inherit',
-            }}
-          />
-          <button
-            onClick={handleCreate}
-            style={{
-              height: 24, padding: '0 8px', borderRadius: 4,
-              border: 'none', background: '#a78bfa', color: '#fff',
-              fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            Add
-          </button>
-        </div>
-      )}
+      {!collapsed && (
+        <>
+          {creating && (
+            <div style={{ padding: '2px 8px 6px', display: 'flex', gap: 5 }}>
+              <input
+                ref={inputRef}
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreate()
+                  if (e.key === 'Escape') { setCreating(false); setNewName('') }
+                }}
+                onBlur={() => { if (!newName.trim()) setCreating(false) }}
+                placeholder="Session name…"
+                style={{
+                  flex: 1, height: 24, borderRadius: 4,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.05)',
+                  color: 'rgba(255,255,255,0.75)', fontSize: 11,
+                  padding: '0 7px', outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+              <button
+                onClick={handleCreate}
+                style={{
+                  height: 24, padding: '0 8px', borderRadius: 4,
+                  border: 'none', background: '#a78bfa', color: '#fff',
+                  fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Add
+              </button>
+            </div>
+          )}
 
-      {sessions.length === 0 && !creating ? (
-        <div style={{
-          padding: '2px 12px 8px 28px',
-          fontSize: 11, color: 'rgba(255,255,255,0.2)', fontStyle: 'italic',
-        }}>
-          No saved sessions
-        </div>
-      ) : (
-        <div style={{ paddingBottom: 4 }}>
-          {sessions.map((s) => (
-            <SessionItem key={s.id} session={s} onRemove={() => remove(s.id)} />
-          ))}
-        </div>
+          {sessions.length === 0 && !creating ? (
+            <div style={{
+              padding: '2px 12px 8px 28px',
+              fontSize: 11, color: 'rgba(255,255,255,0.2)', fontStyle: 'italic',
+            }}>
+              No saved sessions
+            </div>
+          ) : (
+            <div style={{ paddingBottom: 4 }}>
+              {sessions.map((s) => (
+                <SessionItem key={s.id} session={s} onRemove={() => remove(s.id)} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
