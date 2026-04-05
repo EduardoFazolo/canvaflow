@@ -9,26 +9,26 @@ import { loadWorkspaceCanvas } from '../hooks/useWorkspaceInit'
 import { getCanvasRect } from '../utils/canvasUtils'
 import { getSidebarAgentStatusUi } from '../../../modules/servers/agentic_signals/renderer/sidebarStatusUi'
 import {
-  IconTerminal2,
-  IconBrowser,
-  IconFolder,
-  IconFolderOpen,
-  IconBrandNotion,
-  IconBrandTrello,
-  IconNote,
-  IconCode,
-  IconRobot,
-  IconLayoutKanban,
-  IconWindowMaximize,
-  IconNetwork,
-  IconSubtask,
-  IconBrandOpenai,
-  IconUser,
-  IconPlus,
-  IconSettings,
-  IconX,
-  IconChevronRight,
-} from '@tabler/icons-react'
+  Terminal,
+  Globe,
+  Folder,
+  FolderOpen,
+  NotionLogo,
+  Columns,
+  Notepad,
+  Code,
+  Robot,
+  Kanban,
+  AppWindow,
+  Graph,
+  TreeStructure,
+  Brain,
+  User,
+  Plus,
+  GearSix,
+  X,
+  CaretRight,
+} from '@phosphor-icons/react'
 
 function jumpToNode(node: NodeData): void {
   const zoom = Math.max(useCameraStore.getState().camera.zoom, 0.7)
@@ -44,42 +44,41 @@ function jumpToNode(node: NodeData): void {
 export const SIDEBAR_W = 240
 
 // ---------------------------------------------------------------------------
-// Icons (Tabler Icons – colorful)
+// Icons (Phosphor – filled, flat colors)
 // ---------------------------------------------------------------------------
 
 const ICON_SIZE = 14
-const ICON_STROKE = 1.6
 
 const nodeIconMap: Record<string, { icon: React.ElementType; color: string }> = {
-  terminal:     { icon: IconTerminal2,        color: '#22d3ee' },  // cyan
-  browser:      { icon: IconBrowser,           color: '#60a5fa' },  // blue
-  browserv2:    { icon: IconBrowser,           color: '#60a5fa' },
-  files:        { icon: IconFolder,            color: '#fbbf24' },  // amber
-  notion:       { icon: IconBrandNotion,       color: '#e5e5e5' },  // white-ish
-  trello:       { icon: IconBrandTrello,       color: '#0079bf' },  // trello blue
-  note:         { icon: IconNote,              color: '#a78bfa' },  // purple
-  monaco:       { icon: IconCode,              color: '#34d399' },  // green
-  claude:       { icon: IconBrandOpenai,       color: '#f9a8d4' },  // pink
-  orchestrator: { icon: IconNetwork,           color: '#fb923c' },  // orange
-  subagent:     { icon: IconSubtask,           color: '#c084fc' },  // violet
-  kanban:       { icon: IconLayoutKanban,      color: '#2dd4bf' },  // teal
-  windowpicker: { icon: IconWindowMaximize,    color: '#94a3b8' },  // slate
+  terminal:     { icon: Terminal,      color: '#7eb8c9' },  // muted cyan
+  browser:      { icon: Globe,         color: '#7ea8d4' },  // muted blue
+  browserv2:    { icon: Globe,         color: '#7ea8d4' },
+  files:        { icon: Folder,        color: '#c9a84e' },  // muted amber
+  notion:       { icon: NotionLogo,    color: '#b0b0b0' },  // grey
+  trello:       { icon: Columns,       color: '#5a9abf' },  // muted trello
+  note:         { icon: Notepad,       color: '#9a84c4' },  // muted purple
+  monaco:       { icon: Code,          color: '#6fb89a' },  // muted green
+  claude:       { icon: Brain,         color: '#c48ea0' },  // muted pink
+  orchestrator: { icon: Graph,         color: '#c49060' },  // muted orange
+  subagent:     { icon: TreeStructure, color: '#a07ec4' },  // muted violet
+  kanban:       { icon: Kanban,        color: '#6aab9e' },  // muted teal
+  windowpicker: { icon: AppWindow,     color: '#8a95a3' },  // muted slate
 }
 
 function NodeTypeIcon({ type }: { type: string }): React.ReactElement {
   const entry = nodeIconMap[type]
   if (entry) {
     const Icon = entry.icon
-    return <Icon size={ICON_SIZE} stroke={ICON_STROKE} color={entry.color} style={{ flexShrink: 0 }} />
+    return <Icon size={ICON_SIZE} weight="fill" color={entry.color} style={{ flexShrink: 0 }} />
   }
-  return <IconRobot size={ICON_SIZE} stroke={ICON_STROKE} color="rgba(255,255,255,0.35)" style={{ flexShrink: 0 }} />
+  return <Robot size={ICON_SIZE} weight="fill" color="rgba(255,255,255,0.35)" style={{ flexShrink: 0 }} />
 }
 
 function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
   return (
-    <IconChevronRight
+    <CaretRight
       size={12}
-      stroke={2}
+      weight="bold"
       color="currentColor"
       style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
     />
@@ -125,8 +124,8 @@ function WorkspaceIcon({ path, open }: { path: string; open: boolean }): React.R
     return <img src={iconUrl} width={14} height={14} style={{ borderRadius: 2, flexShrink: 0 }} />
   }
 
-  const Icon = open ? IconFolderOpen : IconFolder
-  return <Icon size={14} stroke={ICON_STROKE} color="#fbbf24" style={{ flexShrink: 0 }} />
+  const Icon = open ? FolderOpen : Folder
+  return <Icon size={14} weight="fill" color="rgba(255,255,255,0.3)" style={{ flexShrink: 0 }} />
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +356,7 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
               padding: 0, flexShrink: 0,
             }}
           >
-            <IconX size={10} stroke={2} />
+            <X size={10} weight="bold" />
           </button>
         )}
       </div>
@@ -504,7 +503,7 @@ function NodeItem({ node, workspaceActive, onSwitchWorkspace, workspaceId }: {
           onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(255,80,80,0.9)' }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.color = 'rgba(255,255,255,0.4)' }}
         >
-          <IconX size={12} stroke={2} />
+          <X size={12} weight="bold" />
         </div>
       )}
     </div>
@@ -798,7 +797,7 @@ function SessionItem({ session, onRemove }: {
       onDoubleClick={() => { setRenaming(true); setNameVal(session.name) }}
     >
       {/* Profile icon */}
-      <IconUser size={13} stroke={ICON_STROKE} color="#a78bfa" style={{ flexShrink: 0 }} />
+      <User size={13} weight="fill" color="#9a84c4" style={{ flexShrink: 0 }} />
 
       {renaming ? (
         <input
@@ -892,7 +891,7 @@ function SessionsSection(): React.ReactElement {
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)' }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)' }}
         >
-          <IconPlus size={13} stroke={2} />
+          <Plus size={13} weight="bold" />
         </button>
       </div>
 
@@ -963,7 +962,7 @@ function GearButton({ onClick }: { onClick: () => void }): React.ReactElement {
         padding: 0, flexShrink: 0, transition: 'background 0.1s, color 0.1s',
       }}
     >
-      <IconSettings size={15} stroke={1.8} />
+      <GearSix size={15} weight="fill" />
     </button>
   )
 }
@@ -984,7 +983,7 @@ function AddIconButton({ onClick }: { onClick: () => void }): React.ReactElement
         padding: 0, flexShrink: 0, transition: 'background 0.1s, color 0.1s',
       }}
     >
-      <PlusIcon />
+      <Plus size={13} weight="bold" />
     </button>
   )
 }
