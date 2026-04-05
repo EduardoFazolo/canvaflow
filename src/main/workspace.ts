@@ -183,6 +183,30 @@ export function setupWorkspaceHandlers(): void {
     await fs.promises.rm(filePath, { recursive: true, force: true })
   })
 
+  ipcMain.handle('fs:copy', async (_e, srcPath: string, destDir: string) => {
+    const name = path.basename(srcPath)
+    let target = path.join(destDir, name)
+
+    // Avoid overwriting — append " (copy)", " (copy 2)", etc.
+    if (fs.existsSync(target)) {
+      const ext = path.extname(name)
+      const base = ext ? name.slice(0, -ext.length) : name
+      let n = 1
+      do {
+        const suffix = n === 1 ? ' (copy)' : ` (copy ${n})`
+        target = path.join(destDir, base + suffix + ext)
+        n++
+      } while (fs.existsSync(target))
+    }
+
+    const stat = await fs.promises.stat(srcPath)
+    if (stat.isDirectory()) {
+      await fs.promises.cp(srcPath, target, { recursive: true })
+    } else {
+      await fs.promises.copyFile(srcPath, target)
+    }
+  })
+
   // -------------------------------------------------------------------------
   // Git
   // -------------------------------------------------------------------------

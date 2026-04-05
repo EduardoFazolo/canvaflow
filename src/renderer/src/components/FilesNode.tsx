@@ -94,8 +94,10 @@ export function FilesNode({ node }: Props): React.ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null)
   const letterJump = useRef<{ letter: string; idx: number }>({ letter: '', idx: -1 })
   const [repoDragOver, setRepoDragOver] = useState(false)
+  const [fileDragOver, setFileDragOver] = useState(false)
   const [cloning, setCloning] = useState<string | null>(null)
   const [cloneError, setCloneError] = useState<string | null>(null)
+  const [copying, setCopying] = useState<string | null>(null)
 
   // Persist props without overwriting other keys
   const persistProps = useCallback((patch: Record<string, unknown>) => {
@@ -229,6 +231,26 @@ export function FilesNode({ node }: Props): React.ReactElement {
   const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setRepoDragOver(false)
+    setFileDragOver(false)
+
+    // Handle file drops from another FilesNode
+    const filePath = e.dataTransfer.getData('application/canvaflow-file')
+    if (filePath) {
+      const name = filePath.split('/').pop() || filePath
+      setCopying(name)
+      setCloneError(null)
+      try {
+        await window.fs.copy(filePath, currentPath)
+        await loadDir(currentPath, false)
+      } catch (err: any) {
+        setCloneError(err?.message ?? 'Copy failed')
+      } finally {
+        setCopying(null)
+      }
+      return
+    }
+
+    // Handle repo drops
     const raw = e.dataTransfer.getData('application/canvaflow-repo')
     if (!raw) return
     let repo: { owner: string; repo: string; cloneUrl: string }
@@ -245,6 +267,12 @@ export function FilesNode({ node }: Props): React.ReactElement {
     }
   }, [currentPath, loadDir])
 
+  const onEntryDragStart = useCallback((e: React.DragEvent, entryName: string) => {
+    const fullPath = currentPath.replace(/\/$/, '') + '/' + entryName
+    e.dataTransfer.setData('application/canvaflow-file', fullPath)
+    e.dataTransfer.effectAllowed = 'copy'
+  }, [currentPath])
+
   const tbBtn = (active = false): React.CSSProperties => ({
     width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
@@ -259,12 +287,20 @@ export function FilesNode({ node }: Props): React.ReactElement {
         style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0e0e0e', userSelect: 'none', position: 'relative' }}
         onPointerDown={(e) => { useNodeStore.getState().setFocusedNodeId(node.id); e.stopPropagation() }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('application/canvaflow-repo')) {
+          if (e.dataTransfer.types.includes('application/canvaflow-file')) {
+            e.preventDefault()
+            setFileDragOver(true)
+          } else if (e.dataTransfer.types.includes('application/canvaflow-repo')) {
             e.preventDefault()
             setRepoDragOver(true)
           }
         }}
-        onDragLeave={() => setRepoDragOver(false)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setRepoDragOver(false)
+            setFileDragOver(false)
+          }
+        }}
         onDrop={onDrop}
         onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setSelected(null) }}
       >
@@ -373,6 +409,8 @@ export function FilesNode({ node }: Props): React.ReactElement {
               <div
                 key={entry.name}
                 data-entry={entry.name}
+                draggable
+                onDragStart={(e) => onEntryDragStart(e, entry.name)}
                 onClick={() => { setSelected(entry.name); scrollRef.current?.focus() }}
                 onDoubleClick={() => onEntryDoubleClick(entry, currentPath)}
                 style={{
@@ -413,6 +451,8 @@ export function FilesNode({ node }: Props): React.ReactElement {
                   <div
                     key={entry.name}
                     data-entry={entry.name}
+                    draggable
+                    onDragStart={(e) => onEntryDragStart(e, entry.name)}
                     onClick={() => { setSelected(entry.name); scrollRef.current?.focus() }}
                     onDoubleClick={() => onEntryDoubleClick(entry, currentPath)}
                     style={{
@@ -449,7 +489,23 @@ export function FilesNode({ node }: Props): React.ReactElement {
           {cloneError && <span style={{ color: 'rgba(239,68,68,0.7)', marginLeft: 'auto' }}>{cloneError}</span>}
         </div>
 
-        {/* Drop zone overlay */}
+        {/* File drop zone overlay */}
+        {fileDragOver && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 20,
+            background: 'rgba(139,92,246,0.12)', border: '2px dashed rgba(139,92,246,0.5)',
+            borderRadius: 8, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 8, pointerEvents: 'none',
+          }}>
+            <svg width="28" height="34" viewBox="0 0 28 34" fill="none">
+              <path d="M3 1H18L27 10V32C27 32.55 26.55 33 26 33H3C2.45 33 2 32.55 2 32V2C2 1.45 2.45 1 3 1Z" fill="rgba(139,92,246,0.5)" stroke="rgba(139,92,246,0.7)" strokeWidth="1"/>
+              <path d="M18 1V10H27" fill="rgba(0,0,0,0.2)" stroke="rgba(139,92,246,0.7)" strokeWidth="1"/>
+            </svg>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(167,139,250,0.9)' }}>Drop to copy here</span>
+          </div>
+        )}
+
+        {/* Repo drop zone overlay */}
         {repoDragOver && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 20,
@@ -461,6 +517,24 @@ export function FilesNode({ node }: Props): React.ReactElement {
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
             </svg>
             <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(167,139,250,0.9)' }}>Drop to clone here</span>
+          </div>
+        )}
+
+        {/* Copy in progress */}
+        {copying && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              border: '2px solid rgba(139,92,246,0.2)', borderTop: '2px solid rgba(139,92,246,0.8)',
+              animation: 'spin 0.8s linear infinite',
+            }}/>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              Copying <strong style={{ color: 'rgba(255,255,255,0.85)' }}>{copying}</strong>…
+            </span>
+            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
           </div>
         )}
 

@@ -263,10 +263,11 @@ export function Canvas(): React.ReactElement {
   const onDragOver = useCallback((e: React.DragEvent) => {
     if (
       e.dataTransfer.types.includes('application/canvaflow-notion-page') ||
-      e.dataTransfer.types.includes('application/canvaflow-kanban-card')
+      e.dataTransfer.types.includes('application/canvaflow-kanban-card') ||
+      e.dataTransfer.types.includes('application/canvaflow-file')
     ) {
       e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
+      e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/canvaflow-file') ? 'copy' : 'move'
     }
   }, [])
 

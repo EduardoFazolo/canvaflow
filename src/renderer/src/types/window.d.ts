@@ -262,6 +262,7 @@ declare global {
       readFile: (filePath: string) => Promise<string>
       writeFile: (filePath: string, content: string) => Promise<void>
       delete: (filePath: string) => Promise<void>
+      copy: (srcPath: string, destDir: string) => Promise<void>
     }
   }
 }

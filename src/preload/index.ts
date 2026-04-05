@@ -159,6 +159,9 @@ contextBridge.exposeInMainWorld('fs', {
 
   delete: (filePath: string): Promise<void> =>
     ipcRenderer.invoke('fs:delete', filePath),
+
+  copy: (srcPath: string, destDir: string): Promise<void> =>
+    ipcRenderer.invoke('fs:copy', srcPath, destDir),
 })
 
 contextBridge.exposeInMainWorld('agent', {
