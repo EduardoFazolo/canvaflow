@@ -175,6 +175,11 @@ export function setupWorkspaceHandlers(): void {
     return fs.promises.readFile(filePath, 'utf-8')
   })
 
+  ipcMain.handle('fs:readFileBase64', async (_e, filePath: string) => {
+    const buf = await fs.promises.readFile(filePath)
+    return buf.toString('base64')
+  })
+
   ipcMain.handle('fs:writeFile', async (_e, filePath: string, content: string) => {
     await fs.promises.writeFile(filePath, content, 'utf-8')
   })

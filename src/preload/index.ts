@@ -154,6 +154,9 @@ contextBridge.exposeInMainWorld('fs', {
   readFile: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('fs:readFile', filePath),
 
+  readFileBase64: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('fs:readFileBase64', filePath),
+
   writeFile: (filePath: string, content: string): Promise<void> =>
     ipcRenderer.invoke('fs:writeFile', filePath, content),
 
