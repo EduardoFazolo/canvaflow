@@ -50,19 +50,19 @@ export const SIDEBAR_W = 240
 const ICON_SIZE = 14
 
 const nodeIconMap: Record<string, { icon: React.ElementType; color: string }> = {
-  terminal:     { icon: Terminal,      color: '#7eb8c9' },  // muted cyan
-  browser:      { icon: Globe,         color: '#7ea8d4' },  // muted blue
-  browserv2:    { icon: Globe,         color: '#7ea8d4' },
-  files:        { icon: Folder,        color: '#c9a84e' },  // muted amber
-  notion:       { icon: NotionLogo,    color: '#b0b0b0' },  // grey
-  trello:       { icon: Columns,       color: '#5a9abf' },  // muted trello
-  note:         { icon: Notepad,       color: '#9a84c4' },  // muted purple
-  monaco:       { icon: Code,          color: '#6fb89a' },  // muted green
-  claude:       { icon: Brain,         color: '#c48ea0' },  // muted pink
-  orchestrator: { icon: Graph,         color: '#c49060' },  // muted orange
-  subagent:     { icon: TreeStructure, color: '#a07ec4' },  // muted violet
-  kanban:       { icon: Kanban,        color: '#6aab9e' },  // muted teal
-  windowpicker: { icon: AppWindow,     color: '#8a95a3' },  // muted slate
+  terminal:     { icon: Terminal,      color: '#6dba9a' },  // green
+  browser:      { icon: Globe,         color: '#7aa3d4' },  // blue
+  browserv2:    { icon: Globe,         color: '#7aa3d4' },
+  files:        { icon: Folder,        color: '#c4a24e' },  // golden
+  notion:       { icon: NotionLogo,    color: '#a0a0a0' },  // grey
+  trello:       { icon: Columns,       color: '#5b9ec9' },  // cerulean
+  note:         { icon: Notepad,       color: '#b07ec4' },  // purple
+  monaco:       { icon: Code,          color: '#d4a056' },  // amber
+  claude:       { icon: Brain,         color: '#c47a8a' },  // rose
+  orchestrator: { icon: Graph,         color: '#d08c5a' },  // burnt orange
+  subagent:     { icon: TreeStructure, color: '#8a7ec4' },  // indigo
+  kanban:       { icon: Kanban,        color: '#5aafa0' },  // teal
+  windowpicker: { icon: AppWindow,     color: '#8a95a3' },  // slate
 }
 
 function NodeTypeIcon({ type }: { type: string }): React.ReactElement {
