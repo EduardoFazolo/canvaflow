@@ -122,7 +122,17 @@ function createWindow(): void {
 // Minimal application menu that restores native Cmd+C/V/X/A/Z clipboard shortcuts.
 // Without this, Electron apps with autoHideMenuBar lose the Edit role bindings.
 Menu.setApplicationMenu(Menu.buildFromTemplate([
-  { label: app.name, submenu: [{ role: 'quit' }] },
+  {
+    label: app.name, submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
+  },
   {
     label: 'Edit', submenu: [
       { role: 'undo' },
@@ -132,6 +142,31 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
       { role: 'copy' },
       { role: 'paste' },
       { role: 'selectAll' },
+    ],
+  },
+  {
+    label: 'View', submenu: [
+      { role: 'reload' },
+      { role: 'forceReload' },
+      {
+        label: 'Toggle Developer Tools',
+        accelerator: 'CmdOrCtrl+Option+I',
+        click: () => { mainWindow?.webContents.toggleDevTools() },
+      },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ],
+  },
+  {
+    label: 'Window', submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { type: 'separator' },
+      { role: 'front' },
     ],
   },
 ]))
