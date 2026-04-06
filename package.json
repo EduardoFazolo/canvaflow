@@ -4,7 +4,9 @@
   "description": "Infinite canvas workspace tool",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "bash scripts/uninstall-mcp.sh && bash scripts/install-mcp.sh && electron-vite dev",
+    "mcp:install": "bash scripts/install-mcp.sh",
+    "mcp:uninstall": "bash scripts/uninstall-mcp.sh",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",

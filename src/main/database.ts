@@ -56,6 +56,21 @@ export interface NodeMetadataRow {
   pinned: number // 0 | 1
 }
 
+export interface AgentTaskRow {
+  id: string
+  title: string
+  description: string | null
+  workspacePath: string | null
+  branchName: string | null
+  orchestratorId: string | null
+  status: string            // 'pending' | 'in_progress' | 'completed' | 'failed'
+  agentType: string         // 'claude' | 'orchestrate'
+  coordinationRules: string | null // JSON — sibling info, constraints
+  result: string | null     // agent-written summary when done
+  createdAt: number
+  updatedAt: number
+}
+
 // ---------------------------------------------------------------------------
 // DB instance
 // ---------------------------------------------------------------------------
@@ -136,6 +151,24 @@ function migrate(): void {
       name      TEXT NOT NULL,
       createdAt INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS agent_tasks (
+      id                TEXT PRIMARY KEY,
+      title             TEXT NOT NULL,
+      description       TEXT,
+      workspacePath     TEXT,
+      branchName        TEXT,
+      orchestratorId    TEXT,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      agentType         TEXT NOT NULL DEFAULT 'claude',
+      coordinationRules TEXT,
+      result            TEXT,
+      createdAt         INTEGER NOT NULL,
+      updatedAt         INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_tasks_orchestrator ON agent_tasks(orchestratorId);
+    CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status);
   `)
 
   // Incremental migrations — safe to run on existing databases
@@ -326,5 +359,54 @@ export function upsertNodeMetadata(nodeId: string, patch: Partial<Omit<NodeMetad
       tags = excluded.tags,
       description = excluded.description,
       pinned = excluded.pinned
+  `).run(row)
+}
+
+// ---------------------------------------------------------------------------
+// Agent tasks — task store for MCP-driven agent execution
+// ---------------------------------------------------------------------------
+
+export function createAgentTask(task: AgentTaskRow): void {
+  db.prepare(`
+    INSERT INTO agent_tasks
+      (id, title, description, workspacePath, branchName, orchestratorId,
+       status, agentType, coordinationRules, result, createdAt, updatedAt)
+    VALUES
+      (@id, @title, @description, @workspacePath, @branchName, @orchestratorId,
+       @status, @agentType, @coordinationRules, @result, @createdAt, @updatedAt)
+  `).run(task)
+}
+
+export function getAgentTask(id: string): AgentTaskRow | null {
+  return db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(id) as AgentTaskRow | null
+}
+
+export function updateAgentTaskStatus(id: string, status: string, result?: string): void {
+  const now = Date.now()
+  if (result !== undefined) {
+    db.prepare('UPDATE agent_tasks SET status = ?, result = ?, updatedAt = ? WHERE id = ?')
+      .run(status, result, now, id)
+  } else {
+    db.prepare('UPDATE agent_tasks SET status = ?, updatedAt = ? WHERE id = ?')
+      .run(status, now, id)
+  }
+}
+
+export function getAgentTasksByOrchestrator(orchestratorId: string): AgentTaskRow[] {
+  return db.prepare('SELECT * FROM agent_tasks WHERE orchestratorId = ? ORDER BY createdAt ASC')
+    .all(orchestratorId) as AgentTaskRow[]
+}
+
+export function updateAgentTask(id: string, patch: Partial<Omit<AgentTaskRow, 'id' | 'createdAt'>>): void {
+  const existing = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(id) as AgentTaskRow | null
+  if (!existing) return
+  const row = { ...existing, ...patch, updatedAt: Date.now() }
+  db.prepare(`
+    UPDATE agent_tasks SET
+      title = @title, description = @description, workspacePath = @workspacePath,
+      branchName = @branchName, orchestratorId = @orchestratorId, status = @status,
+      agentType = @agentType, coordinationRules = @coordinationRules, result = @result,
+      updatedAt = @updatedAt
+    WHERE id = @id
   `).run(row)
 }

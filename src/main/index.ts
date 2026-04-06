@@ -16,6 +16,7 @@ import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
 import { registerOrchestratorHandlers } from '../plugins/orchestrator/main/handlers'
 import { registerWindowPickerHandlers } from '../plugins/windowpicker/main/handlers'
+import { setupTaskHandlers } from './taskBridge'
 
 // Suppress noisy Chromium GPU/Skia internal errors that are benign in webview usage
 app.commandLine.appendSwitch('log-level', '3')
@@ -186,6 +187,7 @@ app.whenReady().then(async () => {
   registerLovableHandlers(ipcMain)
   registerOrchestratorHandlers(ipcMain, () => mainWindow?.webContents ?? null)
   registerWindowPickerHandlers(ipcMain)
+  setupTaskHandlers()
 
   // Init tmux and clean up orphan sessions from deleted nodes
   await tmuxManager.init()

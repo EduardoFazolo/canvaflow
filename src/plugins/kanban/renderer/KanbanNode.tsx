@@ -955,20 +955,56 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const extracted = buildTaskPrompt(worktreeDrop.card)
             const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
-            // 7. Create the agent node EXPLICITLY in the worktree canvas
+            // 7. Create a task in SQLite so the MCP can serve it
+            const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+            const now = Date.now()
+            let mcpConfigPath: string | null = null
+            try { mcpConfigPath = await window.tasks.mcpConfigFile() } catch { /* fallback */ }
+
+            await window.tasks.create({
+              id: taskId,
+              title: worktreeDrop.card.title,
+              description: prompt,
+              workspacePath: worktreePath,
+              branchName,
+              orchestratorId: null,
+              status: 'pending',
+              agentType: config.agentId,
+              coordinationRules: null,
+              result: null,
+              createdAt: now,
+              updatedAt: now,
+            })
+
+            // 8. Create the agent node EXPLICITLY in the worktree canvas
             if (config.agentId === 'claude') {
+              // When MCP is available: pass the task ID as a positional arg so Claude
+              // auto-submits it on boot. No coordinator needed — no double-paste.
+              // When MCP is not available: use bare flags + coordinator for the old paste approach.
+              const claudeFlags = mcpConfigPath
+                ? `--dangerously-skip-permissions --mcp-config ${mcpConfigPath}`
+                : '--dangerously-skip-permissions'
+
               const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
                 cwd: worktreePath,
-                claudeFlags: '--dangerously-skip-permissions',
+                claudeFlags,
+                taskId,
               })
 
-              window.coordinator.register(newNode.id, prompt)
+              // Coordinator watches for Claude's ready prompt, then pastes the task.
+              // With MCP: short bootstrap prompt that tells Claude to query the task store.
+              // Without MCP: full task text (old behavior).
+              const coordinatorPrompt = mcpConfigPath
+                ? `Use the canvaflow MCP get_task tool with task_id "${taskId}" to retrieve your assignment, then execute it.`
+                : prompt
+              window.coordinator.register(newNode.id, coordinatorPrompt)
               useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
             } else if (config.agentId === 'orchestrate') {
               const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
                 task: worktreeDrop.card.title,
                 status: 'idle',
                 subagentIds: [],
+                taskId,
               })
               useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
               window.orchestrator.start(newNode.id, {

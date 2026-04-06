@@ -1,9 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodeStore } from '../../stores/nodeStore'
 import { useCameraStore } from '../../stores/cameraStore'
 import { getActiveWorkspace } from '../../stores/workspaceStore'
 import { titleToBranchName } from '../../utils/branch'
+
+function generateTaskId(): string {
+  return `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
 
 export interface TaskDropPayload {
   title: string
@@ -85,8 +89,14 @@ export function TaskDropModal({ sourceLabel, payload, onStartAgent, onClose }: P
   const [branchBlocked, setBranchBlocked] = useState(false)
   const [branchBlockReason, setBranchBlockReason] = useState('')
   const [loading, setLoading] = useState(false)
+  const mcpPathRef = useRef<string | null>(null)
 
   const workspace = getActiveWorkspace()
+
+  // Resolve MCP config file path once on mount
+  useEffect(() => {
+    window.tasks.mcpConfigFile().then((p) => { mcpPathRef.current = p }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const p = workspace?.path
@@ -170,10 +180,45 @@ export function TaskDropModal({ sourceLabel, payload, onStartAgent, onClose }: P
     setLoading(true)
     try {
       if (ctx.autoBranch && cwd) await window.git.checkoutBranch(cwd, branchName, true)
-      const newNode = useNodeStore.getState().add('claude', wx - 350, wy - 240, { cwd })
+
+      // Create a task in SQLite so the MCP can serve it
+      const taskId = generateTaskId()
+      const now = Date.now()
+      await window.tasks.create({
+        id: taskId,
+        title,
+        description: subtitle ?? null,
+        workspacePath: cwd || null,
+        branchName: ctx.autoBranch ? branchName : null,
+        orchestratorId: null,
+        status: 'pending',
+        agentType: 'claude',
+        coordinationRules: null,
+        result: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      const mcpConfigPath = mcpPathRef.current
+
+      // Build claude flags — PTY splits on whitespace (no shell quoting), so only
+      // use flags without spaces. The task prompt is injected via terminal.write.
+      const claudeFlags = mcpConfigPath
+        ? `--dangerously-skip-permissions --mcp-config ${mcpConfigPath}`
+        : '--dangerously-skip-permissions'
+
+      const newNode = useNodeStore.getState().add('claude', wx - 350, wy - 240, {
+        cwd,
+        taskId,
+        claudeFlags,
+      })
+
+      // Inject the bootstrap prompt after Claude is ready
       const nodeId = newNode.id
-      const capturedText = text
-      setTimeout(() => { window.terminal.write(nodeId, capturedText + '\n') }, 1500)
+      const bootstrapPrompt = mcpConfigPath
+        ? `Use the canvaflow MCP get_task tool with task_id "${taskId}" to retrieve your assignment, then execute it.`
+        : text
+      setTimeout(() => { window.terminal.write(nodeId, bootstrapPrompt + '\n') }, 1500)
       onClose()
     } catch (e) {
       console.error('[TaskDropModal] claude error:', e)

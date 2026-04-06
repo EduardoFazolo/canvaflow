@@ -9,6 +9,8 @@ interface SubagentProps {
   note?: string
   orchestratorId?: string
   workspacePath?: string
+  taskId?: string
+  mcpConfigPath?: string
 }
 
 interface Props {
@@ -71,27 +73,70 @@ export function SubagentNode({ node }: Props): React.ReactElement {
   const note = props.note
   const orchestratorId = props.orchestratorId
 
-  const handleLaunchClaude = useCallback(() => {
-    // Build the coordination prompts
+  const handleLaunchClaude = useCallback(async () => {
+    const cwd = props.workspacePath ?? ''
     const orchNode = orchestratorId
       ? useNodeStore.getState().nodes.get(orchestratorId)
       : undefined
     const { systemPrompt, userPrompt } = buildAgentPrompts(task, node.title, orchNode)
 
-    // Build the claude flags: pass the task as a CLI argument so it auto-submits
-    // --dangerously-skip-permissions: no permission prompts
-    // --append-system-prompt: coordination rules as system context
-    // The positional "prompt" arg: the actual task (auto-submitted, no paste issues)
-    const flags = [
-      '--dangerously-skip-permissions',
-      systemPrompt ? `--append-system-prompt '${shellEscape(systemPrompt)}'` : '',
-      `'${shellEscape(userPrompt)}'`,
-    ].filter(Boolean).join(' ')
+    // Create a task in SQLite so the MCP can serve it
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    const now = Date.now()
+
+    // Build coordination rules with sibling info
+    let coordinationRules: string | null = null
+    if (orchestratorId && orchNode) {
+      const siblingIds = (orchNode.props.subagentIds as string[] | undefined) ?? []
+      const store = useNodeStore.getState()
+      const siblings = siblingIds
+        .map((id) => store.nodes.get(id))
+        .filter((n) => n && n.id !== node.id)
+        .map((n) => ({ title: n!.title, task: (n!.props as SubagentProps).task ?? '' }))
+      coordinationRules = JSON.stringify({ systemPrompt, siblings })
+    }
+
+    await window.tasks.create({
+      id: taskId,
+      title: node.title || task.slice(0, 80),
+      description: task,
+      workspacePath: cwd || null,
+      branchName: null,
+      orchestratorId: orchestratorId ?? null,
+      status: 'pending',
+      agentType: 'claude',
+      coordinationRules,
+      result: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Get MCP config file path (writes a temp JSON for --mcp-config)
+    let mcpConfigPath: string | null = null
+    try { mcpConfigPath = await window.tasks.mcpConfigFile() } catch { /* fallback to raw text */ }
+
+    // Build claude flags — if MCP config is available, use --mcp-config only;
+    // otherwise fall back to the old raw-text flags.
+    // NOTE: PTY splits flags on whitespace (no shell quoting), so we can't use
+    // --append-system-prompt with spaces. The coordinator handles prompt injection.
+    let flags: string
+    if (mcpConfigPath) {
+      flags = `--dangerously-skip-permissions --mcp-config ${mcpConfigPath}`
+    } else {
+      // Fallback: old approach (coordinator will paste the full task text)
+      flags = [
+        '--dangerously-skip-permissions',
+        systemPrompt ? `--append-system-prompt '${shellEscape(systemPrompt)}'` : '',
+        `'${shellEscape(userPrompt)}'`,
+      ].filter(Boolean).join(' ')
+    }
 
     // Create a Claude node at the same position as this subagent
     const newNode = add('claude', node.x, node.y, {
-      cwd: props.workspacePath ?? '',
+      cwd,
       claudeFlags: flags,
+      taskId,
+      mcpConfigPath,
     })
 
     // If we belong to an orchestrator, swap our ID in its subagentIds list
@@ -119,8 +164,10 @@ export function SubagentNode({ node }: Props): React.ReactElement {
         ...newNode.props,
         orchestratorId,
         task,
-        cwd: props.workspacePath ?? '',
+        cwd,
         claudeFlags: flags,
+        taskId,
+        mcpConfigPath,
       },
     })
 

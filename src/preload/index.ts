@@ -341,6 +341,29 @@ contextBridge.exposeInMainWorld('windowpicker', {
     ipcRenderer.invoke('windowpicker:focusWindow', pid, owner),
 })
 
+contextBridge.exposeInMainWorld('tasks', {
+  create: (task: AgentTaskRow): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('tasks:create', task),
+
+  get: (id: string): Promise<AgentTaskRow | null> =>
+    ipcRenderer.invoke('tasks:get', id),
+
+  updateStatus: (id: string, status: string, result?: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('tasks:updateStatus', id, status, result),
+
+  listByOrchestrator: (orchestratorId: string): Promise<AgentTaskRow[]> =>
+    ipcRenderer.invoke('tasks:listByOrchestrator', orchestratorId),
+
+  update: (id: string, patch: Partial<Omit<AgentTaskRow, 'id' | 'createdAt'>>): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('tasks:update', id, patch),
+
+  mcpIndexPath: (): Promise<string> =>
+    ipcRenderer.invoke('tasks:mcpIndexPath'),
+
+  mcpConfigFile: (): Promise<string> =>
+    ipcRenderer.invoke('tasks:mcpConfigFile'),
+})
+
 contextBridge.exposeInMainWorld('notion', {
   fetchPage: (partition: string, pageId: string): Promise<NotionPageChunk> =>
     ipcRenderer.invoke('notion:fetchPage', partition, pageId),
@@ -475,4 +498,19 @@ export interface GitGraphEntry {
   author: string
   subject: string
   refs: string
+}
+
+export interface AgentTaskRow {
+  id: string
+  title: string
+  description: string | null
+  workspacePath: string | null
+  branchName: string | null
+  orchestratorId: string | null
+  status: string
+  agentType: string
+  coordinationRules: string | null
+  result: string | null
+  createdAt: number
+  updatedAt: number
 }
