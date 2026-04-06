@@ -360,6 +360,10 @@ export function NotionNode({ node }: Props): React.ReactElement {
   // Core drag hook
   // ---------------------------------------------------------------------------
 
+  const execOnWebview = useCallback((js: string) => {
+    try { (webviewRef.current as any)?.executeJavaScript(js) } catch {}
+  }, [])
+
   const { isDragging, ghostX, ghostY, startDrag, nudge, cancel } = useCanvasDrag({
     onMove: useCallback((clientX: number, clientY: number) => {
       setDropTarget(getDropTargetAt(clientX, clientY))
@@ -367,6 +371,8 @@ export function NotionNode({ node }: Props): React.ReactElement {
 
     onDrop: useCallback(async (clientX: number, clientY: number) => {
       setDropTarget(null)
+      // Drop happened outside the webview — reset drag state in preload
+      execOnWebview('window.__canvaflow_cancelDrag&&window.__canvaflow_cancelDrag()')
       const data = dragDataRef.current
       if (!data) return
       dragDataRef.current = null
@@ -465,7 +471,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
       // Drop on canvas — show agent picker modal
       prefetchedChunk.current = null
       setPendingDrop({ title, pageId, partition, clientX, clientY })
-    }, [partition]),
+    }, [partition, execOnWebview]),
   })
 
   // ---------------------------------------------------------------------------
@@ -586,6 +592,12 @@ export function NotionNode({ node }: Props): React.ReactElement {
         const scaleX = vpW > 0 ? rect.width  / vpW : rect.width  / node.width
         const scaleY = vpH > 0 ? rect.height / vpH : rect.height / (node.height - TITLE_H - TOOLBAR_H)
         nudge(dx * scaleX, dy * scaleY)
+      } else if (channel === 'notion:drag-end') {
+        // Pointer released inside the webview — cancel the host-side ghost
+        prefetchedChunk.current = null
+        dragDataRef.current = null
+        setDropTarget(null)
+        cancel()
       } else if (channel === 'notion:drag-cancel') {
         prefetchedChunk.current = null
         dragDataRef.current = null

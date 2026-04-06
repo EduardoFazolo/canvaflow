@@ -43,6 +43,13 @@ function extractTitle(el: Element): string {
   }
 }
 
+// Called by the host renderer after a drop completes outside the webview,
+// so we can clear dragActive and hide the overlay.
+;(window as any).__canvaflow_cancelDrag = (): void => {
+  dragActive = false
+  hideOverlay()
+}
+
 function showOverlay(): void {
   if (overlayEl) return
   overlayEl = document.createElement('div')

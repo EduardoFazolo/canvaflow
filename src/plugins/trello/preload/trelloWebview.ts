@@ -215,5 +215,7 @@ document.addEventListener('wheel', (e) => {
     deltaY: e.deltaY,
     clientX: e.clientX,
     clientY: e.clientY,
+    viewportWidth: document.documentElement.clientWidth,
+    viewportHeight: document.documentElement.clientHeight,
   })
 }, { passive: false, capture: true })

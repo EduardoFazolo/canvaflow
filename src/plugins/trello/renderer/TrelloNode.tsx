@@ -548,12 +548,11 @@ export function TrelloNode({ node }: Props): React.ReactElement {
       const { channel, args } = e
 
       if (channel === 'canvas:wheel') {
-        const { deltaY, clientX, clientY } = args[0]
+        const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = args[0]
         const wvRect = (webviewRef.current as HTMLElement)?.getBoundingClientRect()
         if (!wvRect) return
-        const { width: vpW, height: vpH } = webviewViewport.current
-        const scaleX = vpW > 0 ? wvRect.width / vpW : 1
-        const scaleY = vpH > 0 ? wvRect.height / vpH : 1
+        const scaleX = viewportWidth ? wvRect.width / viewportWidth : 1
+        const scaleY = viewportHeight ? wvRect.height / viewportHeight : 1
         const hostX = wvRect.left + clientX * scaleX
         const hostY = wvRect.top + clientY * scaleY
         useCameraStore.getState().zoomAt(hostX, hostY, deltaY)
