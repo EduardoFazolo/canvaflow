@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import { DragGhost, DropTargetHighlight } from '../../../renderer/src/components/ui/drag-ghost'
+import type { DragGhostTheme } from '../../../renderer/src/components/ui/drag-ghost'
 import { NodeData, useNodeStore } from '../../../renderer/src/stores/nodeStore'
 import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
 import { useSessionStore } from '../../../renderer/src/stores/sessionStore'
 import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholder'
-import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
+import { useWebviewNodeDrag } from '../../../renderer/src/hooks/useWebviewNodeDrag'
 import { getPreparedTrelloExport, primeTrelloExport } from '../utils/trelloDrag'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
 import { ContextMenuItem } from '../../../renderer/src/components/ui/context-menu'
@@ -30,6 +31,23 @@ declare global {
 
 const TITLE_H = 32
 const TOOLBAR_H = 36
+
+const TRELLO_GHOST_THEME: DragGhostTheme = {
+  background: '#1D2125',
+  textColor: 'rgba(255,255,255,0.88)',
+  borderColor: 'rgba(255,255,255,0.1)',
+  skeletonColor: 'rgba(255,255,255,0.08)',
+  footerBorderColor: 'rgba(255,255,255,0.06)',
+  badgeBackground: 'rgba(0,121,191,0.12)',
+  badgeTextColor: 'rgba(0,180,255,0.85)',
+  iconBackground: '#0079BF',
+  iconSvg: (
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="#fff">
+      <rect x="3" y="3" width="7" height="13" rx="1.5"/>
+      <rect x="14" y="3" width="7" height="8" rx="1.5"/>
+    </svg>
+  ),
+}
 const TRELLO_URL = 'https://trello.com'
 
 function getInitialUrl(props: Record<string, unknown>): string {
@@ -304,13 +322,6 @@ const btnHover: React.CSSProperties = {
   ...btnBase, background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.75)',
 }
 
-interface DragDropTarget {
-  nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude'
-  title: string
-  left: number; top: number; width: number; height: number
-}
-
 interface Props { node: NodeData }
 
 // ---------------------------------------------------------------------------
@@ -333,16 +344,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
   const [token, setToken] = useState('')
   const [showCredentials, setShowCredentials] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<TrelloDropPayload | null>(null)
-
-  const dragDataRef = useRef<{ cardId: string; title: string } | null>(null)
-  const [activeDragTitle, setActiveDragTitle] = useState('')
-  const prevWebviewPos = useRef({ x: 0, y: 0 })
-  const webviewViewport = useRef({ width: 0, height: 0 })
   const prefetchedCard = useRef<TrelloCard | null>(null)
-
-  const [dropTarget, setDropTarget] = useState<DragDropTarget | null>(null)
-  const dropTargetRef = useRef<DragDropTarget | null>(null)
-  useEffect(() => { dropTargetRef.current = dropTarget }, [dropTarget])
 
   const cameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
   const [isThumbnailMode, setIsThumbnailMode] = useState(useCameraStore.getState().camera.zoom < 0.3)
@@ -379,91 +381,73 @@ export function TrelloNode({ node }: Props): React.ReactElement {
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Drop target detection
+  // Shared drag hook
   // ---------------------------------------------------------------------------
 
-  const getDropTargetAt = useCallback((clientX: number, clientY: number): DragDropTarget | null => {
-    const canvasEl = document.querySelector('[data-canvas-root]')
-    const canvasRect = canvasEl?.getBoundingClientRect()
-    if (!canvasRect) return null
+  const handleDrop = useCallback(async (
+    data: { cardId: string; title: string },
+    target: import('../../../renderer/src/types/dragDrop').DragDropTarget | null,
+    clientX: number, clientY: number,
+  ) => {
+    const { cardId, title } = data
 
-    const { camera } = useCameraStore.getState()
-    const candidates = Array.from(useNodeStore.getState().nodes.values())
-      .filter((c) => c.id !== node.id && (c.type === 'terminal' || c.type === 'browser' || c.type === 'claude'))
-      .map((c) => {
-        const left = canvasRect.left + camera.x + c.x * camera.zoom
-        const top = canvasRect.top + camera.y + c.y * camera.zoom
-        const width = c.width * camera.zoom
-        const height = (c.minimized ? 32 : c.height) * camera.zoom
-        return { candidate: c, left, top, width, height }
-      })
-      .filter(({ left, top, width, height }) =>
-        clientX >= left && clientX <= left + width && clientY >= top && clientY <= top + height
-      )
-      .sort((a, b) => b.candidate.zIndex - a.candidate.zIndex)
-
-    const hit = candidates[0]
-    if (!hit) return null
-    return {
-      nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude',
-      title: hit.candidate.title,
-      left: hit.left, top: hit.top, width: hit.width, height: hit.height,
-    }
-  }, [node.id])
-
-  // ---------------------------------------------------------------------------
-  // Drag hook
-  // ---------------------------------------------------------------------------
-
-  const execOnWebview = useCallback((js: string) => {
-    try { (webviewRef.current as any)?.executeJavaScript(js) } catch {}
-  }, [])
-
-  const { isDragging, ghostX, ghostY, startDrag, nudge, cancel } = useCanvasDrag({
-    onMove: useCallback((clientX: number, clientY: number) => {
-      setDropTarget(getDropTargetAt(clientX, clientY))
-    }, [getDropTargetAt]),
-
-    onDrop: useCallback(async (clientX: number, clientY: number) => {
-      setDropTarget(null)
-      // Drop happened outside the webview — reset drag state in preload
-      execOnWebview('window.__canvaflow_cancelDrag&&window.__canvaflow_cancelDrag()')
-      const data = dragDataRef.current
-      if (!data) return
-      dragDataRef.current = null
-      const { cardId, title } = data
-
-      const target = dropTargetRef.current
-
-      if (target) {
-        let text = title
-        const prepared = getPreparedTrelloExport(cardId)
-        if (prepared) {
-          text = prepared.text
-        } else if (apiKey && token) {
-          try {
-            const result = await primeTrelloExport(apiKey, token, cardId)
-            text = result.text
-          } catch {}
-        }
-
-        if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
-          useNodeStore.getState().setFocusedNodeId(target.nodeId)
-          window.terminal.write(target.nodeId, text)
-          return
-        }
-        if (target.nodeType === 'browser') {
-          await pasteIntoBrowser(target.nodeId, text)
-          return
-        }
+    if (target) {
+      let text = title
+      const prepared = getPreparedTrelloExport(cardId)
+      if (prepared) {
+        text = prepared.text
+      } else if (apiKey && token) {
+        try {
+          const result = await primeTrelloExport(apiKey, token, cardId)
+          text = result.text
+        } catch {}
       }
 
-      // Drop on canvas — show agent picker modal
-      const card = prefetchedCard.current
+      if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
+        useNodeStore.getState().setFocusedNodeId(target.nodeId)
+        window.terminal.write(target.nodeId, text)
+        return
+      }
+      if (target.nodeType === 'browser') {
+        await pasteIntoBrowser(target.nodeId, text)
+        return
+      }
+    }
+
+    // Drop on canvas — show agent picker modal
+    const card = prefetchedCard.current
+    prefetchedCard.current = null
+    setPendingDrop({ cardId, title, clientX, clientY, prefetchedCard: card, apiKey, token, partition })
+  }, [apiKey, token, partition])
+
+  const { isDragging, ghostX, ghostY, activeDragTitle, dropTarget, bindWebviewIpc } = useWebviewNodeDrag<{ cardId: string; title: string }>({
+    nodeId: node.id,
+    channelPrefix: 'trello',
+    webviewRef,
+    nodeWidth: node.width,
+    nodeHeight: node.height,
+    titleBarHeight: TITLE_H,
+    toolbarHeight: TOOLBAR_H,
+    dropTargetTypes: ['terminal', 'browser', 'claude', 'kanban'],
+    parseDragStart: useCallback((payload: any) => {
+      const { itemId, title } = payload
+      if (!itemId) return null
+      return { data: { cardId: itemId, title }, title }
+    }, []),
+    onPrefetch: useCallback((data: { cardId: string; title: string }) => {
       prefetchedCard.current = null
-      setPendingDrop({ cardId, title, clientX, clientY, prefetchedCard: card, apiKey, token, partition })
-    }, [apiKey, token, execOnWebview]),
+      if (apiKey && token) {
+        window.trello.fetchCard(apiKey, token, data.cardId)
+          .then((card) => { prefetchedCard.current = card })
+          .catch(() => {})
+        void primeTrelloExport(apiKey, token, data.cardId).catch(() => {})
+      } else {
+        window.trello.fetchCardWithSession(partition, data.cardId)
+          .then((card) => { prefetchedCard.current = card })
+          .catch(() => {})
+      }
+    }, [apiKey, token, partition]),
+    onDrop: handleDrop,
   })
 
   // ---------------------------------------------------------------------------
@@ -500,29 +484,7 @@ export function TrelloNode({ node }: Props): React.ReactElement {
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Host-side Meta key detection
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const exec = (js: string) => {
-      try { ;(webviewRef.current as any)?.executeJavaScript(js) } catch {}
-    }
-    const onDown = (e: KeyboardEvent) => {
-      if (e.key === 'Meta') exec('window.__canvaflow_setMode&&window.__canvaflow_setMode(true)')
-    }
-    const onUp = (e: KeyboardEvent) => {
-      if (e.key === 'Meta') exec('window.__canvaflow_setMode&&window.__canvaflow_setMode(false)')
-    }
-    document.addEventListener('keydown', onDown)
-    document.addEventListener('keyup', onUp)
-    return () => {
-      document.removeEventListener('keydown', onDown)
-      document.removeEventListener('keyup', onUp)
-    }
-  }, [])
-
-  // ---------------------------------------------------------------------------
-  // Webview IPC messages
+  // Webview event listeners
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -544,69 +506,8 @@ export function TrelloNode({ node }: Props): React.ReactElement {
     wv.addEventListener('did-navigate', onNavigate)
     wv.addEventListener('did-navigate-in-page', onNavigate)
 
-    const onIpcMessage = (e: any) => {
-      const { channel, args } = e
+    const cleanupIpc = bindWebviewIpc(wv)
 
-      if (channel === 'canvas:wheel') {
-        const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = args[0]
-        const wvRect = (webviewRef.current as HTMLElement)?.getBoundingClientRect()
-        if (!wvRect) return
-        const scaleX = viewportWidth ? wvRect.width / viewportWidth : 1
-        const scaleY = viewportHeight ? wvRect.height / viewportHeight : 1
-        const hostX = wvRect.left + clientX * scaleX
-        const hostY = wvRect.top + clientY * scaleY
-        useCameraStore.getState().zoomAt(hostX, hostY, deltaY)
-        return
-      }
-
-      if (channel === 'trello:drag-start') {
-        const { cardId, title, x, y, viewportWidth, viewportHeight } = args[0]
-        prevWebviewPos.current = { x, y }
-        webviewViewport.current = { width: viewportWidth ?? 0, height: viewportHeight ?? 0 }
-        prefetchedCard.current = null
-        dragDataRef.current = { cardId, title }
-        setActiveDragTitle(title)
-        setDropTarget(null)
-        const wvRect = (webviewRef.current as HTMLElement)?.getBoundingClientRect()
-        const initX = (wvRect && viewportWidth) ? wvRect.left + (x / viewportWidth) * wvRect.width : undefined
-        const initY = (wvRect && viewportHeight) ? wvRect.top + (y / viewportHeight) * wvRect.height : undefined
-        startDrag(initX, initY)
-        // Prefetch card content fire-and-forget
-        if (apiKey && token) {
-          window.trello.fetchCard(apiKey, token, cardId)
-            .then((card) => { prefetchedCard.current = card })
-            .catch(() => {})
-          void primeTrelloExport(apiKey, token, cardId).catch(() => {})
-        } else {
-          window.trello.fetchCardWithSession(partition, cardId)
-            .then((card) => { prefetchedCard.current = card })
-            .catch(() => {})
-        }
-      } else if (channel === 'trello:drag-move') {
-        const { x, y } = args[0]
-        const dx = x - prevWebviewPos.current.x
-        const dy = y - prevWebviewPos.current.y
-        prevWebviewPos.current = { x, y }
-        const rect = (webviewRef.current as HTMLElement).getBoundingClientRect()
-        const { width: vpW, height: vpH } = webviewViewport.current
-        const scaleX = vpW > 0 ? rect.width / vpW : rect.width / node.width
-        const scaleY = vpH > 0 ? rect.height / vpH : rect.height / (node.height - TITLE_H - TOOLBAR_H)
-        nudge(dx * scaleX, dy * scaleY)
-      } else if (channel === 'trello:drag-end') {
-        // Pointer released inside the webview — cancel the host-side ghost
-        prefetchedCard.current = null
-        dragDataRef.current = null
-        setDropTarget(null)
-        cancel()
-      } else if (channel === 'trello:drag-cancel') {
-        prefetchedCard.current = null
-        dragDataRef.current = null
-        setDropTarget(null)
-        cancel()
-      }
-    }
-
-    wv.addEventListener('ipc-message', onIpcMessage)
     return () => {
       wv.removeEventListener('did-start-loading', onStart)
       wv.removeEventListener('did-stop-loading', onStop)
@@ -614,9 +515,9 @@ export function TrelloNode({ node }: Props): React.ReactElement {
       wv.removeEventListener('page-title-updated', onTitle)
       wv.removeEventListener('did-navigate', onNavigate)
       wv.removeEventListener('did-navigate-in-page', onNavigate)
-      wv.removeEventListener('ipc-message', onIpcMessage)
+      cleanupIpc()
     }
-  }, [node.id, node.width, node.height, preloadPath, update, startDrag, nudge, cancel, apiKey, token, isActivated])
+  }, [node.id, preloadPath, update, bindWebviewIpc, isActivated])
 
   const handleReload = useCallback(() => {
     if (!webviewRef.current) return
@@ -803,85 +704,8 @@ export function TrelloNode({ node }: Props): React.ReactElement {
           </div>
         </BaseNode>
 
-    {/* Drop target highlight */}
-    {dropTarget && createPortal(
-      <div style={{
-        position: 'fixed',
-        left: dropTarget.left, top: dropTarget.top,
-        width: dropTarget.width, height: dropTarget.height,
-        zIndex: 999998, pointerEvents: 'none', borderRadius: 8,
-        border: '1.5px solid rgba(0,121,191,0.65)',
-        background: 'rgba(0,121,191,0.1)',
-        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1px rgba(0,121,191,0.2)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16, boxSizing: 'border-box',
-      }}>
-        <div style={{
-          background: 'rgba(19,16,29,0.92)', color: 'rgba(255,255,255,0.9)',
-          borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 600,
-          letterSpacing: '0.01em', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-        }}>
-          {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude'
-            : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal'
-            : 'Drop to copy into browser'}
-        </div>
-      </div>,
-      document.body
-    )}
-
-    {/* Drag ghost */}
-    {isDragging && createPortal(
-      <div style={{
-        position: 'fixed', left: ghostX - 120, top: ghostY - 24,
-        zIndex: 999999, pointerEvents: 'none', width: 240,
-        background: '#1D2125',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 6,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-        transform: 'rotate(1.5deg) scale(1.03)', transformOrigin: '50% 20%',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}>
-        <div style={{ padding: '10px 12px 8px' }}>
-          <div style={{
-            fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.88)',
-            lineHeight: 1.4, marginBottom: 8, wordBreak: 'break-word',
-          }}>
-            {activeDragTitle || 'Untitled'}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div style={{ height: 7, borderRadius: 3, background: 'rgba(255,255,255,0.08)', width: '85%' }} />
-            <div style={{ height: 7, borderRadius: 3, background: 'rgba(255,255,255,0.08)', width: '65%' }} />
-          </div>
-        </div>
-        <div style={{
-          padding: '5px 12px 8px',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            background: 'rgba(0,121,191,0.12)', borderRadius: 20,
-            padding: '2px 7px', fontSize: 10, fontWeight: 600,
-            color: 'rgba(0,180,255,0.85)', letterSpacing: '0.01em',
-          }}>
-            <svg width="7" height="7" viewBox="0 0 10 10" fill="none">
-              <path d="M5 1v6M2 5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Drop on canvas
-          </div>
-          <div style={{
-            width: 16, height: 16, borderRadius: 3, background: '#0079BF',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="#fff">
-              <rect x="3" y="3" width="7" height="13" rx="1.5"/>
-              <rect x="14" y="3" width="7" height="8" rx="1.5"/>
-            </svg>
-          </div>
-        </div>
-      </div>,
-      document.body
-    )}
+    {dropTarget && <DropTargetHighlight target={dropTarget} accentColor="rgba(0,121,191,0.65)" />}
+    {isDragging && <DragGhost ghostX={ghostX} ghostY={ghostY} title={activeDragTitle} theme={TRELLO_GHOST_THEME} />}
 
     {pendingDrop && (
       <TrelloDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />

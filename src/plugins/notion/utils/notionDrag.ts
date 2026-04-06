@@ -1,6 +1,6 @@
 import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
 import { useNodeStore } from '../../../renderer/src/stores/nodeStore'
-import { notionChunkToTiptap } from './notionToTiptap'
+import { notionChunkToTiptap, unwrapBlockValue } from './notionToTiptap'
 
 export interface NotionCanvasDropPayload {
   partition: string
@@ -108,10 +108,11 @@ export async function createNotionNoteFromDrop(
     setContent(imageMap)
 
     const imageBlocks = Object.values(chunk.recordMap.block)
-      .filter((b: any) => b.value.type === 'image')
-      .map((b: any) => ({
-        blockId: b.value.id as string,
-        src: (b.value.format?.display_source ?? b.value.properties?.source?.[0]?.[0]) as string,
+      .map((b: any) => unwrapBlockValue(b))
+      .filter((v: any) => v?.type === 'image')
+      .map((v: any) => ({
+        blockId: v.id as string,
+        src: (v.format?.display_source ?? v.properties?.source?.[0]?.[0]) as string,
       }))
       .filter((item): item is { blockId: string; src: string } => typeof item.src === 'string')
 

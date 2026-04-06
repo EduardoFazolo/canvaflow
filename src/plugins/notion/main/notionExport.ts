@@ -210,9 +210,16 @@ function renderBlocks(
 
 export function buildNotionExport(
   pageId: string,
-  blocks: Record<string, { value: any }>,
+  rawBlocks: Record<string, any>,
   imageMap: Record<string, string>
 ): { markdown: string; html: string; text: string } {
+  // Normalize Notion API v3 block wrapping ({ value: { value: {...} } } → { value: {...} })
+  const blocks: Record<string, { value: any }> = {}
+  for (const [id, entry] of Object.entries(rawBlocks)) {
+    const v = entry?.value
+    blocks[id] = v?.value?.id ? { value: v.value } : { value: v }
+  }
+
   const uuid = pageId.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
   const pageBlock = blocks[uuid] ?? blocks[pageId]
   if (!pageBlock) return { markdown: '', html: '', text: '' }

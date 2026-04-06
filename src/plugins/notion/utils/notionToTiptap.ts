@@ -1,3 +1,13 @@
+/**
+ * Unwrap a Notion block entry from the API response.
+ * API v3 returns `{ value: { value: { id, type, ... } } }`,
+ * while older responses return `{ value: { id, type, ... } }`.
+ */
+export function unwrapBlockValue(entry: any): any {
+  const v = entry?.value
+  return v?.value?.id ? v.value : v
+}
+
 // Gray animated loading placeholder shown while a Notion image is being fetched
 export const IMAGE_LOADING_PLACEHOLDER = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="140">' +
@@ -116,9 +126,15 @@ function notionBlockToTiptap(
 
 export function notionChunkToTiptap(
   pageId: string,
-  blocks: Record<string, { value: any }>,
+  rawBlocks: Record<string, any>,
   imageMap: Record<string, string> = {}
 ): object {
+  // Normalize blocks to flat { value: { id, type, ... } } form
+  const blocks: Record<string, { value: any }> = {}
+  for (const [id, entry] of Object.entries(rawBlocks)) {
+    blocks[id] = { value: unwrapBlockValue(entry) }
+  }
+
   const uuid = pageId.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
 
   const pageBlock = blocks[uuid] ?? blocks[pageId]

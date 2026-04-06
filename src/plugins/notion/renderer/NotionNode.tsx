@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import { DragGhost, DropTargetHighlight } from '../../../renderer/src/components/ui/drag-ghost'
+import type { DragGhostTheme } from '../../../renderer/src/components/ui/drag-ghost'
 import { NodeData, useNodeStore } from '../../../renderer/src/stores/nodeStore'
 import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { useCameraStore } from '../../../renderer/src/stores/cameraStore'
 import { useSessionStore } from '../../../renderer/src/stores/sessionStore'
 import { useActivationStore } from '../../../renderer/src/stores/activationStore'
 import { NodePlaceholder } from '../../../renderer/src/components/NodePlaceholder'
-import { useCanvasDrag } from '../../../renderer/src/hooks/useCanvasDrag'
+import { useWebviewNodeDrag } from '../../../renderer/src/hooks/useWebviewNodeDrag'
 import { getPreparedNotionExternalDrag, primeNotionExternalDrag, primeNotionPage } from '../utils/notionDrag'
-import { notionChunkToTiptap } from '../utils/notionToTiptap'
+import { notionChunkToTiptap, unwrapBlockValue } from '../utils/notionToTiptap'
 import { NotionDropModal, NotionDropPayload } from './NotionDropModal'
 import { pasteIntoBrowser } from '../../../renderer/src/browserRegistry'
 import { useKanbanStore } from '../../kanban/store'
@@ -31,6 +32,22 @@ declare global {
 
 const TITLE_H = 32
 const TOOLBAR_H = 36
+
+const NOTION_GHOST_THEME: DragGhostTheme = {
+  background: '#ffffff',
+  textColor: '#37352f',
+  borderColor: 'rgba(55,53,47,0.12)',
+  skeletonColor: 'rgba(55,53,47,0.08)',
+  footerBorderColor: 'rgba(55,53,47,0.06)',
+  badgeBackground: 'rgba(124,58,237,0.08)',
+  badgeTextColor: 'rgba(109,40,217,0.85)',
+  iconBackground: '#f1f0ef',
+  iconSvg: (
+    <svg width="9" height="9" viewBox="0 0 14 14" fill="#37352f">
+      <path d="M3.08 2.17c1.65-.12 4.16-.18 5.62-.16 1.58.02 2.08.44 2.14 1.95.08 1.68.08 4.22 0 5.9-.06 1.48-.52 1.91-2.03 1.96-1.61.06-4.15.06-5.79 0-1.43-.05-1.95-.5-2.02-1.86-.08-1.73-.09-4.36 0-6.08.07-1.34.59-1.6 2.08-1.71Zm.45 1.36v6.95h6.94V3.53H3.53Zm1.26 1.17h3.95v.91H6.99v3.09h-.98V5.61H4.79V4.7Z"/>
+    </svg>
+  ),
+}
 
 function getPartition(sessionId: string | undefined, nodeId: string): string {
   if (!sessionId || sessionId === 'default') return 'persist:canvaflow-ws-default'
@@ -267,16 +284,6 @@ const btnHover: React.CSSProperties = {
   color: 'rgba(255,255,255,0.75)',
 }
 
-interface DragDropTarget {
-  nodeId: string
-  nodeType: 'terminal' | 'browser' | 'claude' | 'kanban'
-  title: string
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
 interface Props {
   node: NodeData
 }
@@ -294,17 +301,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
   const [loggingIn, setLoggingIn] = useState(false)
 
   const [pendingDrop, setPendingDrop] = useState<NotionDropPayload | null>(null)
-
-  // Drag data stored in a ref so the drop callback doesn't need to re-subscribe
-  const dragDataRef = useRef<{ pageId: string; title: string } | null>(null)
-  const [activeDragTitle, setActiveDragTitle] = useState('')
-  const prevWebviewPos = useRef({ x: 0, y: 0 })
-  const webviewViewport = useRef({ width: 0, height: 0 })
   const prefetchedChunk = useRef<any>(null)
-
-  const [dropTarget, setDropTarget] = useState<DragDropTarget | null>(null)
-  const dropTargetRef = useRef<DragDropTarget | null>(null)
-  useEffect(() => { dropTargetRef.current = dropTarget }, [dropTarget])
 
   const cameraZoomRef = useRef(useCameraStore.getState().camera.zoom)
   const [isThumbnailMode, setIsThumbnailMode] = useState(
@@ -313,165 +310,132 @@ export function NotionNode({ node }: Props): React.ReactElement {
   const [thumbnail, setThumbnail] = useState<string | null>(null)
 
   // ---------------------------------------------------------------------------
-  // Drop target detection
+  // Shared drag hook
   // ---------------------------------------------------------------------------
 
-  const getDropTargetAt = useCallback((clientX: number, clientY: number): DragDropTarget | null => {
-    const canvasEl = document.querySelector('[data-canvas-root]')
-    const canvasRect = canvasEl?.getBoundingClientRect()
-    if (!canvasRect) return null
+  const handleDrop = useCallback(async (
+    data: { pageId: string; title: string },
+    target: import('../../../renderer/src/types/dragDrop').DragDropTarget | null,
+    clientX: number, clientY: number,
+  ) => {
+    const { pageId, title } = data
 
-    const { camera } = useCameraStore.getState()
-    const candidates = Array.from(useNodeStore.getState().nodes.values())
-      .filter((candidate) =>
-        candidate.id !== node.id &&
-        (candidate.type === 'terminal' || candidate.type === 'browser' || candidate.type === 'claude' || candidate.type === 'kanban')
-      )
-      .map((candidate) => {
-        const left = canvasRect.left + camera.x + candidate.x * camera.zoom
-        const top = canvasRect.top + camera.y + candidate.y * camera.zoom
-        const width = candidate.width * camera.zoom
-        const height = (candidate.minimized ? 32 : candidate.height) * camera.zoom
-        return { candidate, left, top, width, height }
-      })
-      .filter(({ left, top, width, height }) =>
-        clientX >= left &&
-        clientX <= left + width &&
-        clientY >= top &&
-        clientY <= top + height
-      )
-      .sort((a, b) => b.candidate.zIndex - a.candidate.zIndex)
-
-    const hit = candidates[0]
-    if (!hit) return null
-
-    return {
-      nodeId: hit.candidate.id,
-      nodeType: hit.candidate.type as 'terminal' | 'browser' | 'claude' | 'kanban',
-      title: hit.candidate.title,
-      left: hit.left,
-      top: hit.top,
-      width: hit.width,
-      height: hit.height,
-    }
-  }, [node.id])
-
-  // ---------------------------------------------------------------------------
-  // Core drag hook
-  // ---------------------------------------------------------------------------
-
-  const execOnWebview = useCallback((js: string) => {
-    try { (webviewRef.current as any)?.executeJavaScript(js) } catch {}
-  }, [])
-
-  const { isDragging, ghostX, ghostY, startDrag, nudge, cancel } = useCanvasDrag({
-    onMove: useCallback((clientX: number, clientY: number) => {
-      setDropTarget(getDropTargetAt(clientX, clientY))
-    }, [getDropTargetAt]),
-
-    onDrop: useCallback(async (clientX: number, clientY: number) => {
-      setDropTarget(null)
-      // Drop happened outside the webview — reset drag state in preload
-      execOnWebview('window.__canvaflow_cancelDrag&&window.__canvaflow_cancelDrag()')
-      const data = dragDataRef.current
-      if (!data) return
-      dragDataRef.current = null
-      const { pageId, title } = data
-
-      const target = dropTargetRef.current
-
-      if (target) {
-        // Kanban: create card immediately, load content + images async
-        if (target.nodeType === 'kanban') {
-          const cardId = nanoid(8)
-          const addCardNow = () => {
-            const { state, setState } = useKanbanStore.getState()
-            const board = state.boards.find((b) => b.id === state.activeBoardId)
-            if (!board || board.columns.length === 0) return false
-            const firstCol = board.columns[0]
-            const newColumns = board.columns.map((c) =>
-              c.id === firstCol.id ? { ...c, cards: [...c.cards, { id: cardId, title }] } : c
-            )
-            setState({ ...state, boards: state.boards.map((b) => b.id === board.id ? { ...b, columns: newColumns } : b) })
-            return true
-          }
-          if (!addCardNow()) return
-
-          void (async () => {
-            try {
-              const chunk = await primeNotionPage(partition, pageId)
-              const imageMap: Record<string, string> = {}
-
-              const patchCard = (map: Record<string, string>) => {
-                const { state, setState } = useKanbanStore.getState()
-                const board = state.boards.find((b) => b.id === state.activeBoardId)
-                if (!board) return
-                const content = notionChunkToTiptap(pageId, chunk.recordMap.block, map)
-                const plainText = content.content?.map((n: any) =>
-                  n.content?.map((c: any) => c.text ?? '').join('') ?? ''
-                ).join('\n').trim()
-                const newBoards = state.boards.map((b) =>
-                  b.id === board.id
-                    ? { ...b, columns: b.columns.map((col) => ({
-                        ...col,
-                        cards: col.cards.map((c) =>
-                          c.id === cardId ? { ...c, content, description: plainText?.slice(0, 200) || undefined } : c
-                        ),
-                      })) }
-                    : b
-                )
-                setState({ ...state, boards: newBoards })
-              }
-
-              patchCard(imageMap)
-
-              const imageBlocks = Object.values(chunk.recordMap.block)
-                .filter((b: any) => b.value.type === 'image')
-                .map((b: any) => ({
-                  blockId: b.value.id as string,
-                  src: (b.value.format?.display_source ?? b.value.properties?.source?.[0]?.[0]) as string,
-                }))
-                .filter((item): item is { blockId: string; src: string } => typeof item.src === 'string')
-
-              await Promise.all(imageBlocks.map(async ({ blockId, src }) => {
-                try {
-                  const dataUrl = await window.notion.fetchImage(partition, src, blockId)
-                  imageMap[src] = dataUrl
-                  patchCard({ ...imageMap })
-                } catch {}
-              }))
-            } catch {}
-          })()
-          return
+    if (target) {
+      // Kanban: create card immediately, load content + images async
+      if (target.nodeType === 'kanban') {
+        const cardId = nanoid(8)
+        const addCardNow = () => {
+          const { state, setState } = useKanbanStore.getState()
+          const board = state.boards.find((b) => b.id === state.activeBoardId)
+          if (!board || board.columns.length === 0) return false
+          const firstCol = board.columns[0]
+          const newColumns = board.columns.map((c) =>
+            c.id === firstCol.id ? { ...c, cards: [...c.cards, { id: cardId, title }] } : c
+          )
+          setState({ ...state, boards: state.boards.map((b) => b.id === board.id ? { ...b, columns: newColumns } : b) })
+          return true
         }
+        if (!addCardNow()) return
 
-        // Other targets need the plain-text export
-        let text = title
-        const prepared = getPreparedNotionExternalDrag(partition, pageId)
-        if (prepared) {
-          text = prepared.text
-        } else {
+        void (async () => {
           try {
-            const result = await primeNotionExternalDrag(partition, pageId, title)
-            text = result.text
-          } catch {}
-        }
+            const chunk = await primeNotionPage(partition, pageId)
+            const imageMap: Record<string, string> = {}
 
-        if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
-          useNodeStore.getState().setFocusedNodeId(target.nodeId)
-          window.terminal.write(target.nodeId, text)
-          return
-        }
-        if (target.nodeType === 'browser') {
-          await pasteIntoBrowser(target.nodeId, text)
-          return
-        }
+            const patchCard = (map: Record<string, string>) => {
+              const { state, setState } = useKanbanStore.getState()
+              const board = state.boards.find((b) => b.id === state.activeBoardId)
+              if (!board) return
+              const content = notionChunkToTiptap(pageId, chunk.recordMap.block, map)
+              const plainText = content.content?.map((n: any) =>
+                n.content?.map((c: any) => c.text ?? '').join('') ?? ''
+              ).join('\n').trim()
+              const newBoards = state.boards.map((b) =>
+                b.id === board.id
+                  ? { ...b, columns: b.columns.map((col) => ({
+                      ...col,
+                      cards: col.cards.map((c) =>
+                        c.id === cardId ? { ...c, content, description: plainText?.slice(0, 200) || undefined } : c
+                      ),
+                    })) }
+                  : b
+              )
+              setState({ ...state, boards: newBoards })
+            }
+
+            patchCard(imageMap)
+
+            const imageBlocks = Object.values(chunk.recordMap.block)
+              .map((b: any) => unwrapBlockValue(b))
+              .filter((v: any) => v?.type === 'image')
+              .map((v: any) => ({
+                blockId: v.id as string,
+                src: (v.format?.display_source ?? v.properties?.source?.[0]?.[0]) as string,
+              }))
+              .filter((item): item is { blockId: string; src: string } => typeof item.src === 'string')
+
+            await Promise.all(imageBlocks.map(async ({ blockId, src }) => {
+              try {
+                const dataUrl = await window.notion.fetchImage(partition, src, blockId)
+                imageMap[src] = dataUrl
+                patchCard({ ...imageMap })
+              } catch {}
+            }))
+          } catch {}
+        })()
+        return
       }
 
-      // Drop on canvas — show agent picker modal
+      // Other targets need the plain-text export
+      let text = title
+      const prepared = getPreparedNotionExternalDrag(partition, pageId)
+      if (prepared) {
+        text = prepared.text
+      } else {
+        try {
+          const result = await primeNotionExternalDrag(partition, pageId, title)
+          text = result.text
+        } catch {}
+      }
+
+      if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
+        useNodeStore.getState().setFocusedNodeId(target.nodeId)
+        window.terminal.write(target.nodeId, text)
+        return
+      }
+      if (target.nodeType === 'browser') {
+        await pasteIntoBrowser(target.nodeId, text)
+        return
+      }
+    }
+
+    // Drop on canvas — show agent picker modal
+    prefetchedChunk.current = null
+    setPendingDrop({ title, pageId, partition, clientX, clientY })
+  }, [partition])
+
+  const { isDragging, ghostX, ghostY, activeDragTitle, dropTarget, bindWebviewIpc } = useWebviewNodeDrag<{ pageId: string; title: string }>({
+    nodeId: node.id,
+    channelPrefix: 'notion',
+    webviewRef,
+    nodeWidth: node.width,
+    nodeHeight: node.height,
+    titleBarHeight: TITLE_H,
+    toolbarHeight: TOOLBAR_H,
+    dropTargetTypes: ['terminal', 'browser', 'claude', 'kanban'],
+    parseDragStart: useCallback((payload: any) => {
+      const { itemId, title } = payload
+      if (!itemId) return null
+      return { data: { pageId: itemId, title }, title }
+    }, []),
+    onPrefetch: useCallback((data: { pageId: string; title: string }) => {
       prefetchedChunk.current = null
-      setPendingDrop({ title, pageId, partition, clientX, clientY })
-    }, [partition, execOnWebview]),
+      window.notion.fetchPage(partition, data.pageId)
+        .then(chunk => { prefetchedChunk.current = chunk })
+        .catch(() => {})
+      void primeNotionExternalDrag(partition, data.pageId, data.title).catch(() => {})
+    }, [partition]),
+    onDrop: handleDrop,
   })
 
   // ---------------------------------------------------------------------------
@@ -508,29 +472,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
   }, [])
 
   // ---------------------------------------------------------------------------
-  // 3a. Host-side Meta key detection
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const exec = (js: string) => {
-      try { ;(webviewRef.current as any)?.executeJavaScript(js) } catch {}
-    }
-    const onDown = (e: KeyboardEvent) => {
-      if (e.key === 'Meta') exec('window.__canvaflow_setMode&&window.__canvaflow_setMode(true)')
-    }
-    const onUp = (e: KeyboardEvent) => {
-      if (e.key === 'Meta') exec('window.__canvaflow_setMode&&window.__canvaflow_setMode(false)')
-    }
-    document.addEventListener('keydown', onDown)
-    document.addEventListener('keyup', onUp)
-    return () => {
-      document.removeEventListener('keydown', onDown)
-      document.removeEventListener('keyup', onUp)
-    }
-  }, [])
-
-  // ---------------------------------------------------------------------------
-  // 3b. Webview event listeners
+  // Webview event listeners
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -549,72 +491,16 @@ export function NotionNode({ node }: Props): React.ReactElement {
     wv.addEventListener('did-fail-load', onFail)
     wv.addEventListener('page-title-updated', onTitle)
 
-    // IPC messages from webview preload — intentionally synchronous, no awaits
-    const onIpcMessage = (e: any) => {
-      const { channel, args } = e
-      if (channel === 'canvas:wheel') {
-        const { deltaY, clientX, clientY, viewportWidth, viewportHeight } = args[0]
-        const wvRect = (webviewRef.current as HTMLElement | null)?.getBoundingClientRect()
-        if (!wvRect) return
-        const scaleX = viewportWidth ? wvRect.width / viewportWidth : 1
-        const scaleY = viewportHeight ? wvRect.height / viewportHeight : 1
-        const hostX = wvRect.left + clientX * scaleX
-        const hostY = wvRect.top + clientY * scaleY
-        useCameraStore.getState().zoomAt(hostX, hostY, deltaY)
-        return
-      }
-      if (channel === 'notion:drag-start') {
-        const { pageId, title, x, y, viewportWidth, viewportHeight } = args[0]
-        prevWebviewPos.current = { x, y }
-        webviewViewport.current = { width: viewportWidth ?? 0, height: viewportHeight ?? 0 }
-        prefetchedChunk.current = null
-        dragDataRef.current = { pageId, title }
-        setActiveDragTitle(title)
-        setDropTarget(null)
-        // Use cursor ratio within the webview viewport → converts correctly regardless of
-        // DPR, camera zoom, or any CSS zoom Notion applies to its own content.
-        const wvRect = (webviewRef.current as HTMLElement)?.getBoundingClientRect()
-        const initX = (wvRect && viewportWidth)  ? wvRect.left + (x / viewportWidth)  * wvRect.width  : undefined
-        const initY = (wvRect && viewportHeight) ? wvRect.top  + (y / viewportHeight) * wvRect.height : undefined
-        startDrag(initX, initY)
-        // Prefetch page content fire-and-forget
-        window.notion.fetchPage(partition, pageId)
-          .then(chunk => { prefetchedChunk.current = chunk })
-          .catch(() => {})
-        void primeNotionExternalDrag(partition, pageId, title).catch(() => {})
-      } else if (channel === 'notion:drag-move') {
-        const { x, y } = args[0]
-        const dx = x - prevWebviewPos.current.x
-        const dy = y - prevWebviewPos.current.y
-        prevWebviewPos.current = { x, y }
-        const rect = (webviewRef.current as HTMLElement).getBoundingClientRect()
-        const { width: vpW, height: vpH } = webviewViewport.current
-        const scaleX = vpW > 0 ? rect.width  / vpW : rect.width  / node.width
-        const scaleY = vpH > 0 ? rect.height / vpH : rect.height / (node.height - TITLE_H - TOOLBAR_H)
-        nudge(dx * scaleX, dy * scaleY)
-      } else if (channel === 'notion:drag-end') {
-        // Pointer released inside the webview — cancel the host-side ghost
-        prefetchedChunk.current = null
-        dragDataRef.current = null
-        setDropTarget(null)
-        cancel()
-      } else if (channel === 'notion:drag-cancel') {
-        prefetchedChunk.current = null
-        dragDataRef.current = null
-        setDropTarget(null)
-        cancel()
-      }
-    }
-    wv.addEventListener('ipc-message', onIpcMessage)
+    const cleanupIpc = bindWebviewIpc(wv)
 
     return () => {
       wv.removeEventListener('did-start-loading', onStart)
       wv.removeEventListener('did-stop-loading', onStop)
       wv.removeEventListener('did-fail-load', onFail)
       wv.removeEventListener('page-title-updated', onTitle)
-      wv.removeEventListener('ipc-message', onIpcMessage)
+      cleanupIpc()
     }
-  }, [node.id, partition, preloadPath, update, startDrag, nudge, cancel, isActivated])
+  }, [node.id, preloadPath, update, bindWebviewIpc, isActivated])
 
   const handleReload = useCallback(() => {
     if (!webviewRef.current) return
@@ -772,100 +658,8 @@ export function NotionNode({ node }: Props): React.ReactElement {
           </div>
         </BaseNode>
 
-    {/* Drop target highlight */}
-    {dropTarget && createPortal(
-      <div style={{
-        position: 'fixed',
-        left: dropTarget.left,
-        top: dropTarget.top,
-        width: dropTarget.width,
-        height: dropTarget.height,
-        zIndex: 999998,
-        pointerEvents: 'none',
-        borderRadius: 8,
-        border: '1.5px solid rgba(167,139,250,0.65)',
-        background: 'rgba(167,139,250,0.12)',
-        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1px rgba(167,139,250,0.2)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        boxSizing: 'border-box',
-      }}>
-        <div style={{
-          background: 'rgba(19,16,29,0.92)',
-          color: 'rgba(255,255,255,0.9)',
-          borderRadius: 999,
-          padding: '8px 14px',
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: '0.01em',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-          textAlign: 'center',
-        }}>
-          {dropTarget.nodeType === 'claude' ? 'Drop to send to Claude' : dropTarget.nodeType === 'terminal' ? 'Drop to copy into terminal' : dropTarget.nodeType === 'kanban' ? 'Drop to add to Kanban' : 'Drop to copy into browser'}
-        </div>
-      </div>,
-      document.body
-    )}
-
-    {/* Drag ghost — portalled to body to escape canvas CSS transform */}
-    {isDragging && createPortal(
-      <div style={{
-        position: 'fixed',
-        left: ghostX - 120,
-        top: ghostY - 24,
-        zIndex: 999999,
-        pointerEvents: 'none',
-        width: 240,
-        background: '#ffffff',
-        border: '1px solid rgba(55,53,47,0.12)',
-        borderRadius: 6,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.10)',
-        transform: 'rotate(1.5deg) scale(1.03)',
-        transformOrigin: '50% 20%',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}>
-        <div style={{ padding: '10px 12px 8px' }}>
-          <div style={{
-            fontSize: 13, fontWeight: 600, color: '#37352f',
-            lineHeight: 1.4, marginBottom: 8, wordBreak: 'break-word',
-          }}>
-            {activeDragTitle || 'Untitled'}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div style={{ height: 7, borderRadius: 3, background: 'rgba(55,53,47,0.08)', width: '85%' }} />
-            <div style={{ height: 7, borderRadius: 3, background: 'rgba(55,53,47,0.08)', width: '65%' }} />
-          </div>
-        </div>
-        <div style={{
-          padding: '5px 12px 8px',
-          borderTop: '1px solid rgba(55,53,47,0.06)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            background: 'rgba(124,58,237,0.08)', borderRadius: 20,
-            padding: '2px 7px', fontSize: 10, fontWeight: 600,
-            color: 'rgba(109,40,217,0.85)', letterSpacing: '0.01em',
-          }}>
-            <svg width="7" height="7" viewBox="0 0 10 10" fill="none">
-              <path d="M5 1v6M2 5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Drop on canvas
-          </div>
-          <div style={{
-            width: 16, height: 16, borderRadius: 3, background: '#f1f0ef',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <svg width="9" height="9" viewBox="0 0 14 14" fill="#37352f">
-              <path d="M3.08 2.17c1.65-.12 4.16-.18 5.62-.16 1.58.02 2.08.44 2.14 1.95.08 1.68.08 4.22 0 5.9-.06 1.48-.52 1.91-2.03 1.96-1.61.06-4.15.06-5.79 0-1.43-.05-1.95-.5-2.02-1.86-.08-1.73-.09-4.36 0-6.08.07-1.34.59-1.6 2.08-1.71Zm.45 1.36v6.95h6.94V3.53H3.53Zm1.26 1.17h3.95v.91H6.99v3.09h-.98V5.61H4.79V4.7Z"/>
-            </svg>
-          </div>
-        </div>
-      </div>,
-      document.body
-    )}
+    {dropTarget && <DropTargetHighlight target={dropTarget} accentColor="rgba(167,139,250,0.65)" />}
+    {isDragging && <DragGhost ghostX={ghostX} ghostY={ghostY} title={activeDragTitle} theme={NOTION_GHOST_THEME} />}
     {pendingDrop && (
       <NotionDropModal
         payload={pendingDrop}
