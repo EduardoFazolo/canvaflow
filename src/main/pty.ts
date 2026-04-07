@@ -186,14 +186,16 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
    * exist) or whether to fall back to a plain `claude` start.
    *
    * Claude stores sessions at: ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl
-   * where encoded-cwd is the absolute cwd path with all '/' replaced by '-'.
+   * The encoded-cwd is the absolute cwd path with BOTH '/' AND '.' replaced by
+   * '-'. So `/Users/foo/.worktrees/bar` becomes `-Users-foo--worktrees-bar`
+   * (note the double dash where `/.` was).
    */
   ipcMain.handle('claude:sessionExists', (_event, cwd: string, sessionId: string): boolean => {
     if (!cwd || !sessionId) return false
     const rawCwd = cwd.startsWith('~/') ? os.homedir() + cwd.slice(1)
                  : cwd === '~'         ? os.homedir()
                  : cwd
-    const encoded = rawCwd.replace(/\//g, '-')
+    const encoded = rawCwd.replace(/[/.]/g, '-')
     const sessionPath = join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`)
     return existsSync(sessionPath)
   })
