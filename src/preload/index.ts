@@ -20,8 +20,8 @@ interface NodeMetadataRow {
 }
 
 contextBridge.exposeInMainWorld('terminal', {
-  create: (id: string, workspaceId: string, cwd: string, shell: string) =>
-    ipcRenderer.invoke('terminal:create', id, workspaceId, cwd, shell),
+  create: (id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) =>
+    ipcRenderer.invoke('terminal:create', id, workspaceId, cwd, shell, cols, rows),
 
   write: (id: string, data: string) =>
     ipcRenderer.send('terminal:write', id, data),

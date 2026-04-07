@@ -20,7 +20,7 @@ const ptys = new Map<string, IPty>()
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export function setupPtyHandlers(getWebContents: () => WebContents | null): void {
-  ipcMain.handle('terminal:create', async (_event, id: string, workspaceId: string, cwd: string, shell: string) => {
+  ipcMain.handle('terminal:create', async (_event, id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) => {
     if (ptys.has(id)) return
 
     const pty = await import('node-pty')
@@ -41,8 +41,12 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     const existingPath = baseEnv.PATH ?? ''
     const spawnOpts = {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      // Use the renderer-supplied dimensions when available so the PTY (and the
+      // process inside it) starts at the correct terminal size. Spawning at the
+      // wrong size and resizing afterwards races with claude's startup banner
+      // and produces literal escape-sequence artifacts.
+      cols: cols && cols > 0 ? cols : 80,
+      rows: rows && rows > 0 ? rows : 24,
       env: {
         ...baseEnv,
         TERM: 'xterm-256color',
@@ -54,8 +58,25 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     }
     // Support shell strings with args (e.g. "claude --permission-mode bypassPermissions")
     const shellParts = defaultShell.split(/\s+/)
-    const shellBin = shellParts[0]
-    const shellArgs = shellParts.slice(1)
+    let shellBin = shellParts[0]
+    let shellArgs = shellParts.slice(1)
+
+    // Claude startup race: claude queries the terminal (\e[c — Device Attributes)
+    // and enables focus tracking (\e[?1004h) BEFORE switching the PTY to raw mode.
+    // During that brief window the PTY is in cooked+echo mode, so xterm's responses
+    // (\e[?1;2c, \e[O) get echoed back to stdout and appear as literal text
+    // (^[[?1;2c, ^[[O) at the top of the terminal.
+    //
+    // Fix: disable echo on the PTY BEFORE claude starts, by wrapping the command
+    // with `stty -echo` inside a bash subshell that then `exec`s claude. The exec
+    // replaces bash so no extra process lingers, and claude inherits the no-echo
+    // termios. When claude later switches to full raw mode, echo is already off
+    // so nothing changes.
+    if (shellBin === 'claude') {
+      const claudeCmd = [shellBin, ...shellArgs].join(' ')
+      shellBin = 'bash'
+      shellArgs = ['-c', `stty -echo 2>/dev/null; exec ${claudeCmd}`]
+    }
 
     let ptyProcess: Awaited<ReturnType<typeof pty.spawn>>
     try {
