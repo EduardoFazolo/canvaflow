@@ -744,7 +744,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               'Important: Make sure both this branch\'s changes AND main\'s changes are properly preserved and work together.',
             ].join('\n')
 
-            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Resolve merge conflicts: ${conflictResolve.card.title}`, prompt })
+            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Resolve merge conflicts: ${conflictResolve.card.title}`, prompt, role: 'main' })
           }}
           onClose={() => setConflictResolve(null)}
         >
@@ -832,7 +832,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
             // 7. Create the agent node in the worktree canvas
-            spawnAgent({ agentId: config.agentId, viewKey, worktreePath, taskLabel: worktreeDrop.card.title, prompt })
+            spawnAgent({ agentId: config.agentId, viewKey, worktreePath, taskLabel: worktreeDrop.card.title, prompt, role: 'main' })
           }}
           onClose={() => setWorktreeDrop(null)}
         />

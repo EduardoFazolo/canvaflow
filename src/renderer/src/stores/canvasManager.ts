@@ -169,6 +169,7 @@ async function loadCanvasNodesFromAppState(canvasId: string): Promise<void> {
               focusCount: meta.focusCount,
               totalFocusDuration: (meta as any).totalFocusDuration ?? 0,
               tags: (() => { try { return JSON.parse(meta.tags) } catch { return [] } })(),
+              agentRole: meta.agentRole ?? null,
             })
           }
         }

@@ -150,6 +150,7 @@ export function CodeReviewView(): React.ReactElement {
       taskLabel: `Code review: ${branchName}`,
       prompt,
       skipCommit: true,
+      role: 'reviewer',
     })
 
     // Switch to the canvas so the user can watch the agent work

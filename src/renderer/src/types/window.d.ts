@@ -22,6 +22,8 @@ interface NodeMetadataRow {
   tags: string // JSON array string
   description: string | null
   pinned: number // 0 | 1
+  /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') */
+  agentRole: string | null
 }
 
 interface WorkspaceRow {
