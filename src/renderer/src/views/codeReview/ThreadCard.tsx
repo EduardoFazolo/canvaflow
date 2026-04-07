@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react'
 import type { ReviewThread, ReviewMessage } from '../../../../modules/servers/canvaflow_mcp/shared/types'
 import type { NodeData } from '../../stores/nodeStore'
+import { useNodeStore } from '../../stores/nodeStore'
 import { useReviewStore } from '../../stores/reviewStore'
+import { switchCanvas } from '../../stores/canvasManager'
 import {
   MENTION_REGEX,
   resolveAgentFromSlug,
@@ -30,8 +32,67 @@ const ROLE_AVATAR_GLYPH: Record<string, string> = {
   user: '👤',
 }
 
-function MessageRow({ message, isFirst }: { message: ReviewMessage; isFirst: boolean }): React.ReactElement {
+/**
+ * Switch to the canvas containing the given agent node.
+ * Returns true if the node was found and the jump happened.
+ *
+ * NOTE: We deliberately do NOT call setFocusedNodeId here. Focusing a node
+ * triggers downstream subscriptions (focus tracking, dwell timers, possibly
+ * camera animations) that, combined with the canvas-switch repaint, can
+ * cascade into a re-render storm when the click originates from inside a
+ * heavy view like CodeReview. The user can click the node itself to focus
+ * it once they're on the canvas.
+ */
+function jumpToAgent(nodeId: string): boolean {
+  const store = useNodeStore.getState()
+  for (const [canvasId, canvasNodes] of store.workspaceNodes.entries()) {
+    if (canvasNodes.has(nodeId)) {
+      switchCanvas(canvasId)
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Resolve which agent node a message should jump to.
+ *
+ * Preference order:
+ *   1. The explicit `authorNodeId` if set (new MCP path stamps this)
+ *   2. Fall back to matching the agent role against the canvas's agents
+ *      (handles legacy messages from before node-id capture, plus messages
+ *      that were posted by `add_review_comment` which never had a nodeId)
+ */
+function resolveJumpTarget(message: ReviewMessage, agents: NodeData[]): string | null {
+  if (message.authorNodeId) return message.authorNodeId
+  if (message.authorRole === 'main') {
+    return agents.find((a) => a.agentRole === 'main')?.id ?? null
+  }
+  if (message.authorRole === 'reviewer') {
+    return agents.find((a) => a.agentRole === 'reviewer')?.id ?? null
+  }
+  return null
+}
+
+function MessageRow({
+  message,
+  isFirst,
+  agents,
+}: {
+  message: ReviewMessage
+  isFirst: boolean
+  agents: NodeData[]
+}): React.ReactElement {
   const severityColor = message.severity ? SEVERITY_COLOR[message.severity] : null
+  const jumpTargetId = message.authorRole === 'user' ? null : resolveJumpTarget(message, agents)
+  const canJump = !!jumpTargetId
+
+  const handleJump = (e: React.MouseEvent): void => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (jumpTargetId) jumpToAgent(jumpTargetId)
+  }
+
   return (
     <div style={{
       padding: '12px 14px',
@@ -44,19 +105,72 @@ function MessageRow({ message, isFirst }: { message: ReviewMessage; isFirst: boo
         gap: 8,
         marginBottom: 6,
       }}>
-        <div style={{
-          width: 22, height: 22, borderRadius: '50%',
-          background: ROLE_AVATAR_GRADIENT[message.authorRole] ?? ROLE_AVATAR_GRADIENT.agent,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-          fontSize: 12, fontWeight: 700, color: '#fff',
-        }}>
+        {/* Avatar — clickable when this message has a node to jump to */}
+        <div
+          onClick={handleJump}
+          title={canJump ? 'Jump to this agent on the canvas' : undefined}
+          style={{
+            width: 22, height: 22, borderRadius: '50%',
+            background: ROLE_AVATAR_GRADIENT[message.authorRole] ?? ROLE_AVATAR_GRADIENT.agent,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+            fontSize: 12, fontWeight: 700, color: '#fff',
+            cursor: canJump ? 'pointer' : 'default',
+          }}
+        >
           {ROLE_AVATAR_GLYPH[message.authorRole] ?? '?'}
         </div>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.88)' }}>
+        {/* Name — also clickable */}
+        <span
+          onClick={handleJump}
+          title={canJump ? 'Jump to this agent on the canvas' : undefined}
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'rgba(255,255,255,0.88)',
+            cursor: canJump ? 'pointer' : 'default',
+          }}
+        >
           {message.authorName}
         </span>
         <div style={{ flex: 1 }} />
+        {/* Compact arrow button — only when jumpable */}
+        {canJump && (
+          <button
+            type="button"
+            onClick={handleJump}
+            title="Jump to this agent on the canvas"
+            style={{
+              width: 22, height: 22,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 4,
+              border: 'none',
+              background: 'transparent',
+              color: 'rgba(167,139,250,0.6)',
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => {
+              Object.assign((e.currentTarget as HTMLElement).style, {
+                background: 'rgba(167,139,250,0.12)',
+                color: 'rgba(167,139,250,1)',
+              })
+            }}
+            onMouseLeave={(e) => {
+              Object.assign((e.currentTarget as HTMLElement).style, {
+                background: 'transparent',
+                color: 'rgba(167,139,250,0.6)',
+              })
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path d="M3 9L9 3M9 3H4.5M9 3v4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
         {severityColor && (
           <span style={{
             fontSize: 10, fontWeight: 700, color: severityColor,
@@ -168,7 +282,7 @@ export function ThreadCard({
     }}>
       {/* Stacked messages */}
       {thread.messages.map((m, i) => (
-        <MessageRow key={i} message={m} isFirst={i === 0} />
+        <MessageRow key={i} message={m} isFirst={i === 0} agents={agents} />
       ))}
 
       {/* Reply footer */}

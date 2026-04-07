@@ -215,11 +215,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     try {
+      // CANVAFLOW_NODE_ID is set by the PTY spawner — claude inherits it,
+      // and we (the MCP server) inherit it from claude. Pass it through so
+      // the renderer can map the reply back to a specific agent node and
+      // surface a "jump to agent" affordance.
+      const nodeId = process.env.CANVAFLOW_NODE_ID ?? null
+
       const result = await bridgePost('/review/reply', {
         threadId: thread_id,
         body,
         authorName: author_name ?? 'Agent',
         authorRole: 'agent',
+        authorNodeId: nodeId,
       })
 
       if (!result.ok) {

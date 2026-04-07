@@ -26,24 +26,21 @@ export function buildSingleThreadPrompt(opts: {
 }): string {
   const { branchName, thread } = opts
   return [
-    `You are being asked to respond to a code review comment thread on branch \`${branchName}\`.`,
+    `Code review reply requested. Branch: \`${branchName}\`. File: \`${thread.file}\` line ${thread.line}.`,
     '',
-    'CONTEXT — full thread history (most recent message last):',
-    '',
+    'THREAD:',
     formatThread(thread),
     '',
-    'INSTRUCTIONS:',
-    `1. Read the thread above. The anchor is \`${thread.file}\` line ${thread.line}.`,
-    '2. If you need to look at the actual code, open the file and read the relevant lines.',
-    '3. Decide what to say or do. You can:',
-    '   - Just respond with an analysis or answer.',
-    '   - Make code changes to address the issue, then describe what you did.',
-    '4. When done, call the `reply_to_review_thread` MCP tool with:',
-    `   - \`thread_id\`: "${thread.id}"`,
-    '   - `body`: your reply (markdown supported)',
-    '   - `author_name`: a short label like "Claude (main)" so the user knows who replied',
+    'YOUR TASK:',
+    '- Look at the relevant code if needed.',
+    '- Reply by calling the `reply_to_review_thread` MCP tool.',
+    `- Use \`thread_id\`: "${thread.id}"`,
+    '- Use `author_name`: "Claude (main)"',
     '',
-    'Your reply will appear in the same thread alongside the original review comment.',
+    'STYLE — be brief. Get to the point in 1-3 short paragraphs at most.',
+    'No preamble, no recap of what the reviewer said, no offers to "make the change if you want".',
+    'Just answer the question or state what you found. If a fix is obvious and small, make it and say "fixed".',
+    'If unsure, ask one clarifying question. Markdown is supported (code spans, bold).',
   ].join('\n')
 }
 
