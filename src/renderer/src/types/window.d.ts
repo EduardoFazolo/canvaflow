@@ -239,6 +239,16 @@ declare global {
       }>
       fileAtHead: (rootPath: string, filePath: string) => Promise<string | null>
       fileAtRef: (rootPath: string, ref: string, filePath: string) => Promise<string | null>
+      fileDiff: (rootPath: string, baseRef: string, headRef: string, filePath: string) => Promise<{
+        hunks: Array<{
+          header: string
+          oldStart: number
+          oldCount: number
+          newStart: number
+          newCount: number
+          lines: Array<{ kind: 'add' | 'del' | 'ctx'; oldLine: number | null; newLine: number | null; content: string }>
+        }>
+      }>
       diffBranchFiles: (rootPath: string, branchName: string, baseBranch?: string) => Promise<{
         mergeBase: string
         branch: string

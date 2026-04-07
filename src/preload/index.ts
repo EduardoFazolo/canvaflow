@@ -109,6 +109,17 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:fileAtHead', rootPath, filePath),
   fileAtRef: (rootPath: string, ref: string, filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:fileAtRef', rootPath, ref, filePath),
+  fileDiff: (rootPath: string, baseRef: string, headRef: string, filePath: string): Promise<{
+    hunks: Array<{
+      header: string
+      oldStart: number
+      oldCount: number
+      newStart: number
+      newCount: number
+      lines: Array<{ kind: 'add' | 'del' | 'ctx'; oldLine: number | null; newLine: number | null; content: string }>
+    }>
+  }> =>
+    ipcRenderer.invoke('git:fileDiff', rootPath, baseRef, headRef, filePath),
   diffBranchFiles: (rootPath: string, branchName: string, baseBranch?: string): Promise<{
     mergeBase: string
     branch: string

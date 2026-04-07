@@ -34,6 +34,8 @@ export interface ViewInstance {
   agentNodeId?: string
   /** The workspace this view belongs to (worktree tabs only show in their parent workspace) */
   parentWorkspaceId?: string
+  /** The parent VIEW this tab is attached to (e.g. a code-review tab is a child of its branch canvas tab) */
+  parentViewId?: string
 }
 
 interface ViewStore {

@@ -1,67 +1,14 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { DiffEditor } from '@monaco-editor/react'
-import type * as Monaco from 'monaco-editor'
-import { createHighlighter, type Highlighter } from 'shiki'
 import { useViewStore } from '../stores/viewStore'
 import { useReviewStore } from '../stores/reviewStore'
-import { useNodeStore } from '../stores/nodeStore'
 import { spawnAgent } from '../../../plugins/kanban/renderer/agentShared'
 import { switchCanvas } from '../stores/canvasManager'
 import type { ReviewComment } from '../../../modules/servers/canvaflow_mcp/shared/types'
-
-// Monaco setup is already imported globally via the monaco plugin's setup.ts
-// We just need the theme name and options to match
-import '../../../plugins/monaco/setup'
+import { FileDiffView } from './codeReview/FileDiffView'
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const THEME_NAME = 'canvaflow-dark'
-
-const DIFF_OPTIONS: Monaco.editor.IDiffEditorConstructionOptions = {
-  fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace",
-  fontLigatures: true,
-  fontSize: 13,
-  lineHeight: 1.6,
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
-  smoothScrolling: true,
-  readOnly: true,
-  renderSideBySide: false, // unified view (single column) — better for comments
-  diffWordWrap: 'on',
-  wordWrap: 'on',
-  padding: { top: 8, bottom: 12 },
-  renderLineHighlight: 'none',
-  scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
-}
-
-const EXT_LANG: Record<string, string> = {
-  ts: 'typescript', tsx: 'typescript',
-  js: 'javascript', jsx: 'javascript',
-  py: 'python', rs: 'rust', go: 'go',
-  json: 'json', md: 'markdown', markdown: 'markdown',
-  html: 'html', css: 'css', scss: 'scss', less: 'less',
-  sh: 'shell', bash: 'shell', zsh: 'shell',
-  sql: 'sql', yaml: 'yaml', yml: 'yaml',
-  toml: 'toml', xml: 'xml',
-  c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp',
-  rb: 'ruby', java: 'java', kt: 'kotlin', swift: 'swift',
-  tf: 'hcl', lua: 'lua', cs: 'csharp', php: 'php',
-}
-
-function getLang(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  return EXT_LANG[ext] ?? 'plaintext'
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  A: 'Added',
-  M: 'Modified',
-  D: 'Deleted',
-  R: 'Renamed',
-  C: 'Copied',
-}
 
 const STATUS_COLOR: Record<string, string> = {
   A: '#73c991',
@@ -71,23 +18,7 @@ const STATUS_COLOR: Record<string, string> = {
   C: '#73c991',
 }
 
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: '#ef4444',
-  warning: '#f59e0b',
-  nit: '#6b7280',
-}
-
-const SEVERITY_BG: Record<string, string> = {
-  critical: 'rgba(239,68,68,0.08)',
-  warning: 'rgba(245,158,11,0.08)',
-  nit: 'rgba(107,114,128,0.06)',
-}
-
-const SEVERITY_BORDER: Record<string, string> = {
-  critical: 'rgba(239,68,68,0.2)',
-  warning: 'rgba(245,158,11,0.2)',
-  nit: 'rgba(107,114,128,0.15)',
-}
+const EMPTY_COMMENTS: ReviewComment[] = []
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,346 +29,6 @@ interface DiffFile {
   status: string
   additions: number
   deletions: number
-}
-
-const EMPTY_COMMENTS: ReviewComment[] = []
-
-// ---------------------------------------------------------------------------
-// Shiki highlighter (singleton, lazy-initialized)
-// ---------------------------------------------------------------------------
-
-const SHIKI_LANGS = [
-  'typescript', 'tsx', 'javascript', 'jsx', 'python', 'rust', 'go',
-  'json', 'yaml', 'toml', 'shell', 'bash', 'sql', 'html', 'css',
-  'markdown', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php',
-] as const
-
-const SHIKI_THEME = 'dark-plus'
-
-let highlighterPromise: Promise<Highlighter> | null = null
-
-function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: [SHIKI_THEME],
-      langs: SHIKI_LANGS as unknown as string[],
-    })
-  }
-  return highlighterPromise
-}
-
-/**
- * Guess a shiki language from a code span. We don't get explicit language hints
- * from inline backticks, so we infer from common patterns:
- *   - identifiers/snake_case → no highlighting (just monospace)
- *   - things that look like code → typescript (a reasonable default)
- */
-function guessLang(code: string): string | null {
-  // Very short or just a single identifier — don't bother highlighting
-  if (code.length < 4) return null
-  if (/^[\w./-]+$/.test(code)) return null
-  // Looks like code (has parens, brackets, operators)
-  if (/[()[\]{}<>=]/.test(code)) return 'typescript'
-  return null
-}
-
-/** Highlight a code span with shiki and inject the colored HTML into the target. */
-async function highlightCodeSpan(code: string, target: HTMLElement): Promise<void> {
-  const lang = guessLang(code)
-  if (!lang) return
-  try {
-    const hl = await getHighlighter()
-    const html = hl.codeToHtml(code, { lang, theme: SHIKI_THEME })
-    // Shiki returns a <pre><code>...</code></pre> wrapper — extract the inner spans
-    const tmp = document.createElement('div')
-    tmp.innerHTML = html
-    const codeEl = tmp.querySelector('code')
-    if (codeEl) {
-      target.textContent = ''
-      // Move all child nodes from shiki's <code> into our target
-      while (codeEl.firstChild) target.appendChild(codeEl.firstChild)
-    }
-  } catch {
-    // Fall back to plain text — already set by renderInlineMarkdown
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inline markdown rendering (code, bold, italic) — safe-by-default via DOM
-// ---------------------------------------------------------------------------
-
-/**
- * Render a subset of inline markdown into a DOM node:
- *   `code`  → <code>
- *   **bold** → <strong>
- *   *italic* → <em>
- * Everything else is rendered as plain text (escaped via textContent).
- */
-function renderInlineMarkdown(text: string, target: HTMLElement): void {
-  // Tokens: code spans (highest priority), then bold, then italic
-  const tokenRe = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-
-  while ((match = tokenRe.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      target.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))
-    }
-    const token = match[0]
-    if (token.startsWith('`')) {
-      const codeText = token.slice(1, -1)
-      const code = document.createElement('code')
-      code.textContent = codeText // initial fallback before highlight resolves
-      code.style.cssText = [
-        'background: rgba(110,118,129,0.4)',
-        'padding: 0.15em 0.4em',
-        'margin: 0 1px',
-        'border-radius: 4px',
-        'font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
-        'font-size: 0.9em',
-        'color: rgba(255,255,255,0.92)',
-      ].join(';')
-      target.appendChild(code)
-      // Async-upgrade with shiki syntax highlighting if applicable
-      void highlightCodeSpan(codeText, code)
-    } else if (token.startsWith('**')) {
-      const strong = document.createElement('strong')
-      strong.textContent = token.slice(2, -2)
-      strong.style.fontWeight = '700'
-      target.appendChild(strong)
-    } else {
-      const em = document.createElement('em')
-      em.textContent = token.slice(1, -1)
-      em.style.fontStyle = 'italic'
-      target.appendChild(em)
-    }
-    lastIndex = match.index + token.length
-  }
-
-  if (lastIndex < text.length) {
-    target.appendChild(document.createTextNode(text.slice(lastIndex)))
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inline diff viewer with review comment view zones
-// ---------------------------------------------------------------------------
-
-function InlineDiffWithComments({
-  file,
-  language,
-  original,
-  modified,
-  comments,
-}: {
-  file: string
-  language: string
-  original: string
-  modified: string
-  comments: ReviewComment[]
-}): React.ReactElement {
-  const [diffEditor, setDiffEditor] = useState<Monaco.editor.IStandaloneDiffEditor | null>(null)
-  const zoneIdsRef = useRef<string[]>([])
-
-  const handleMount = useCallback((editor: Monaco.editor.IStandaloneDiffEditor) => {
-    setDiffEditor(editor)
-  }, [])
-
-  // Build a comment card DOM node — styled like a GitHub PR review comment
-  const buildCommentCard = useCallback((lineComments: ReviewComment[], width: number, gutterLeft: number): HTMLElement => {
-    const container = document.createElement('div')
-    container.style.cssText = [
-      `width: ${width}px`,
-      'box-sizing: border-box',
-      `padding: 8px 16px 12px ${gutterLeft + 12}px`,
-      'background: #0d0d0d',
-      'overflow: hidden',
-    ].join(';')
-
-    const card = document.createElement('div')
-    card.style.cssText = [
-      'background: #161b22',
-      'border: 1px solid #30363d',
-      'border-radius: 8px',
-      'overflow: hidden',
-      'box-shadow: 0 1px 0 rgba(0,0,0,0.4)',
-    ].join(';')
-
-    for (let i = 0; i < lineComments.length; i++) {
-      const c = lineComments[i]
-      const color = SEVERITY_COLOR[c.severity] ?? '#6b7280'
-
-      const item = document.createElement('div')
-      item.style.cssText = i > 0
-        ? 'border-top: 1px solid #30363d; padding: 12px 16px;'
-        : 'padding: 12px 16px;'
-
-      // Header: avatar dot + name + severity badge
-      const header = document.createElement('div')
-      header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'
-
-      const avatar = document.createElement('div')
-      avatar.style.cssText = [
-        'width: 20px', 'height: 20px', 'border-radius: 50%',
-        'background: linear-gradient(135deg, #a78bfa, #6366f1)',
-        'display: flex', 'align-items: center', 'justify-content: center',
-        'flex-shrink: 0',
-        'font-size: 11px', 'font-weight: 700', 'color: #fff',
-        'font-family: system-ui, sans-serif',
-      ].join(';')
-      avatar.textContent = '✦'
-
-      const name = document.createElement('span')
-      name.textContent = 'Claude'
-      name.style.cssText = [
-        'font-size: 13px', 'font-weight: 600',
-        'color: rgba(255,255,255,0.85)',
-        'font-family: system-ui, -apple-system, sans-serif',
-      ].join(';')
-
-      const sep = document.createElement('span')
-      sep.textContent = '·'
-      sep.style.cssText = 'color: rgba(255,255,255,0.3); font-size: 12px;'
-
-      const lineLabel = document.createElement('span')
-      lineLabel.textContent = `line ${c.line}`
-      lineLabel.style.cssText = [
-        'font-size: 11px', 'color: rgba(255,255,255,0.4)',
-        'font-family: monospace',
-      ].join(';')
-
-      const spacer = document.createElement('div')
-      spacer.style.cssText = 'flex: 1;'
-
-      const badge = document.createElement('span')
-      badge.textContent = c.severity.toUpperCase()
-      badge.style.cssText = [
-        'font-size: 10px', 'font-weight: 700', `color: ${color}`,
-        `background: ${color}1a`, `border: 1px solid ${color}40`,
-        'padding: 2px 7px', 'border-radius: 10px',
-        'letter-spacing: 0.04em', 'font-family: system-ui, sans-serif',
-        'flex-shrink: 0',
-      ].join(';')
-
-      header.appendChild(avatar)
-      header.appendChild(name)
-      header.appendChild(sep)
-      header.appendChild(lineLabel)
-      header.appendChild(spacer)
-      header.appendChild(badge)
-
-      // Body — render inline markdown (code spans, bold, italic)
-      const body = document.createElement('div')
-      body.style.cssText = [
-        'font-size: 13px',
-        'color: rgba(255,255,255,0.82)',
-        'line-height: 1.55',
-        'white-space: pre-wrap',
-        'overflow-wrap: anywhere',
-        'word-break: break-word',
-        'font-family: system-ui, -apple-system, sans-serif',
-      ].join(';')
-      renderInlineMarkdown(c.message, body)
-
-      item.appendChild(header)
-      item.appendChild(body)
-      card.appendChild(item)
-    }
-
-    container.appendChild(card)
-    return container
-  }, [])
-
-  // Measure card height for view zone allocation
-  const measureHeight = useCallback((node: HTMLElement): number => {
-    node.style.position = 'absolute'
-    node.style.visibility = 'hidden'
-    node.style.top = '-9999px'
-    node.style.left = '0'
-    document.body.appendChild(node)
-    const h = node.offsetHeight
-    document.body.removeChild(node)
-    node.style.position = ''
-    node.style.visibility = ''
-    node.style.top = ''
-    node.style.left = ''
-    return h
-  }, [])
-
-  // Inject view zones whenever comments or the editor change
-  useEffect(() => {
-    if (!diffEditor) return
-
-    const modifiedEditor = diffEditor.getModifiedEditor()
-
-    const renderZones = () => {
-      // Remove previous zones
-      if (zoneIdsRef.current.length > 0) {
-        modifiedEditor.changeViewZones((accessor) => {
-          for (const id of zoneIdsRef.current) accessor.removeZone(id)
-        })
-        zoneIdsRef.current = []
-      }
-
-      if (comments.length === 0) return
-
-      // Group comments by line
-      const byLine = new Map<number, ReviewComment[]>()
-      for (const c of comments) {
-        const list = byLine.get(c.line) ?? []
-        list.push(c)
-        byLine.set(c.line, list)
-      }
-
-      const sortedLines = [...byLine.keys()].sort((a, b) => a - b)
-      const layout = modifiedEditor.getLayoutInfo()
-      // Available width = total - minimap - vertical scrollbar
-      // The gutter (contentLeft) we account for via internal padding so the
-      // card visually starts after the line numbers, like GitHub.
-      const availableWidth = layout.width - layout.minimap.minimapWidth - layout.verticalScrollbarWidth
-      const gutterLeft = layout.contentLeft
-      const newZoneIds: string[] = []
-
-      modifiedEditor.changeViewZones((accessor) => {
-        for (const line of sortedLines) {
-          const lineComments = byLine.get(line)!
-          const card = buildCommentCard(lineComments, availableWidth, gutterLeft)
-          const height = measureHeight(card) + 8
-
-          const id = accessor.addZone({
-            afterLineNumber: line,
-            heightInPx: height,
-            domNode: card,
-            suppressMouseDown: true,
-          })
-          newZoneIds.push(id)
-        }
-      })
-
-      zoneIdsRef.current = newZoneIds
-    }
-
-    renderZones()
-
-    // Re-render zones when the editor is resized so widths/heights stay correct
-    const disposable = modifiedEditor.onDidLayoutChange(() => {
-      renderZones()
-    })
-
-    return () => disposable.dispose()
-  }, [comments, diffEditor, buildCommentCard, measureHeight])
-
-  return (
-    <DiffEditor
-      height="100%"
-      language={language}
-      original={original}
-      modified={modified}
-      theme={THEME_NAME}
-      options={DIFF_OPTIONS}
-      onMount={handleMount}
-    />
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -455,9 +46,63 @@ export function CodeReviewView(): React.ReactElement {
   const reviewId = activeView?.id ?? ''
 
   // Review comments from the store (populated by MCP bridge)
-  const allComments = useReviewStore((s) => reviewId ? (s.comments[reviewId] ?? EMPTY_COMMENTS) : EMPTY_COMMENTS)
-  const [reviewRunning, setReviewRunning] = useState(false)
+  const allComments = useReviewStore((s) =>
+    reviewId ? (s.comments[reviewId] ?? EMPTY_COMMENTS) : EMPTY_COMMENTS
+  )
 
+  const [files, setFiles] = useState<DiffFile[]>([])
+  const [mergeBase, setMergeBase] = useState('')
+  const [headRef, setHeadRef] = useState('')
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [reviewRunning, setReviewRunning] = useState(false)
+  const resizing = useRef(false)
+
+  // ----- Load file list -----
+  useEffect(() => {
+    if (!worktreePath || !branchName) return
+    setLoading(true)
+    setError('')
+    setFiles([])
+    setSelectedFile(null)
+
+    window.git.diffBranchFiles(worktreePath, branchName, 'main').then((result) => {
+      setFiles(result.files)
+      setMergeBase(result.mergeBase)
+      setHeadRef(result.branch)
+      setLoading(false)
+      if (result.files.length > 0) {
+        setSelectedFile(result.files[0].path)
+      }
+    }).catch((e) => {
+      setError(e?.message ?? String(e))
+      setLoading(false)
+    })
+  }, [worktreePath, branchName])
+
+  // ----- Sidebar resize -----
+  const onResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    resizing.current = true
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+
+    const onMove = (ev: PointerEvent) => {
+      if (!resizing.current) return
+      setSidebarWidth(Math.max(180, Math.min(500, startWidth + ev.clientX - startX)))
+    }
+    const onUp = () => {
+      resizing.current = false
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }, [sidebarWidth])
+
+  // ----- AI Review -----
   const startAiReview = useCallback(async () => {
     if (!worktreePath || !branchName || !reviewId) return
     setReviewRunning(true)
@@ -511,104 +156,14 @@ export function CodeReviewView(): React.ReactElement {
     switchCanvas(canvasView.id)
   }, [worktreePath, branchName, reviewId])
 
-  const [files, setFiles] = useState<DiffFile[]>([])
-  const [mergeBase, setMergeBase] = useState('')
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [originalContent, setOriginalContent] = useState<string>('')
-  const [modifiedContent, setModifiedContent] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [fileLoading, setFileLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [sidebarWidth, setSidebarWidth] = useState(280)
-  const resizing = useRef(false)
-
-  const [headRef, setHeadRef] = useState('')
-
-  // Load file list
-  useEffect(() => {
-    if (!worktreePath || !branchName) return
-    setLoading(true)
-    setError('')
-    setFiles([])
-    setSelectedFile(null)
-
-    window.git.diffBranchFiles(worktreePath, branchName, 'main').then((result) => {
-      setFiles(result.files)
-      setMergeBase(result.mergeBase)
-      setHeadRef(result.branch)
-      setLoading(false)
-      // Auto-select first file
-      if (result.files.length > 0) {
-        setSelectedFile(result.files[0].path)
-      }
-    }).catch((e) => {
-      setError(e?.message ?? String(e))
-      setLoading(false)
-    })
-  }, [worktreePath, branchName])
-
-  // Load file content when selection changes
-  useEffect(() => {
-    if (!selectedFile || !worktreePath || !mergeBase || !headRef) return
-    const file = files.find((f) => f.path === selectedFile)
-    if (!file) return
-
-    setFileLoading(true)
-
-    const loadContent = async () => {
-      try {
-        if (file.status === 'D') {
-          // Deleted: original has content, modified is empty
-          const orig = await window.git.fileAtRef(worktreePath, mergeBase, file.path)
-          setOriginalContent(orig ?? '')
-          setModifiedContent('')
-        } else if (file.status === 'A') {
-          // Added: original is empty, modified has content
-          setOriginalContent('')
-          const mod = await window.git.fileAtRef(worktreePath, headRef, file.path)
-          setModifiedContent(mod ?? '')
-        } else {
-          // Modified: both sides
-          const [orig, mod] = await Promise.all([
-            window.git.fileAtRef(worktreePath, mergeBase, file.path),
-            window.git.fileAtRef(worktreePath, headRef, file.path),
-          ])
-          setOriginalContent(orig ?? '')
-          setModifiedContent(mod ?? '')
-        }
-      } catch {
-        setOriginalContent('')
-        setModifiedContent('')
-      }
-      setFileLoading(false)
-    }
-
-    loadContent()
-  }, [selectedFile, worktreePath, mergeBase, headRef, files])
-
-  // Sidebar resize
-  const onResizeStart = useCallback((e: React.PointerEvent) => {
-    e.preventDefault()
-    resizing.current = true
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-
-    const onMove = (ev: PointerEvent) => {
-      if (!resizing.current) return
-      setSidebarWidth(Math.max(180, Math.min(500, startWidth + ev.clientX - startX)))
-    }
-    const onUp = () => {
-      resizing.current = false
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }, [sidebarWidth])
-
-  // Totals
+  // ----- Totals -----
   const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0)
   const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0)
+
+  // Filter comments for the selected file
+  const fileComments = selectedFile
+    ? allComments.filter((c) => c.file === selectedFile)
+    : EMPTY_COMMENTS
 
   if (!activeView) {
     return <div style={{ flex: 1, background: '#0d0d0d' }} />
@@ -724,8 +279,7 @@ export function CodeReviewView(): React.ReactElement {
                 const fileName = file.path.split('/').pop() ?? file.path
                 const dirPath = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : ''
                 const statusColor = STATUS_COLOR[file.status] ?? 'rgba(255,255,255,0.5)'
-                const fileComments = allComments.filter((c) => c.file === file.path)
-                const commentCount = fileComments.length
+                const fileCommentCount = allComments.filter((c) => c.file === file.path).length
 
                 return (
                   <div
@@ -746,7 +300,6 @@ export function CodeReviewView(): React.ReactElement {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {/* Status badge */}
                       <span style={{
                         fontSize: 9, fontWeight: 700, color: statusColor,
                         width: 14, textAlign: 'center', flexShrink: 0,
@@ -754,7 +307,6 @@ export function CodeReviewView(): React.ReactElement {
                       }}>
                         {file.status}
                       </span>
-                      {/* File name */}
                       <span style={{
                         fontSize: 12, color: isActive ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.65)',
                         fontWeight: isActive ? 600 : 400,
@@ -763,7 +315,6 @@ export function CodeReviewView(): React.ReactElement {
                       }}>
                         {fileName}
                       </span>
-                      {/* Stats + comment count */}
                       <span style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
                         {file.additions > 0 && (
                           <span style={{ fontSize: 10, color: '#73c991', fontFamily: 'monospace' }}>+{file.additions}</span>
@@ -771,13 +322,13 @@ export function CodeReviewView(): React.ReactElement {
                         {file.deletions > 0 && (
                           <span style={{ fontSize: 10, color: '#f44747', fontFamily: 'monospace' }}>-{file.deletions}</span>
                         )}
-                        {commentCount > 0 && (
+                        {fileCommentCount > 0 && (
                           <span style={{
                             fontSize: 9, fontWeight: 700, color: '#a78bfa',
                             background: 'rgba(167,139,250,0.15)', borderRadius: 8,
                             padding: '0 5px', lineHeight: '16px', minWidth: 16, textAlign: 'center',
                           }}>
-                            {commentCount}
+                            {fileCommentCount}
                           </span>
                         )}
                       </span>
@@ -810,71 +361,35 @@ export function CodeReviewView(): React.ReactElement {
         />
 
         {/* Diff viewer */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {selectedFile ? (
-            <>
-              {/* File header */}
-              <div style={{
-                padding: '8px 16px',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-                display: 'flex', alignItems: 'center', gap: 8,
-                flexShrink: 0,
-              }}>
-                <span style={{
-                  fontSize: 9, fontWeight: 700,
-                  color: STATUS_COLOR[files.find(f => f.path === selectedFile)?.status ?? 'M'] ?? 'rgba(255,255,255,0.5)',
-                  padding: '1px 5px', borderRadius: 3,
-                  background: 'rgba(255,255,255,0.06)',
-                  fontFamily: 'monospace',
-                }}>
-                  {STATUS_LABEL[files.find(f => f.path === selectedFile)?.status ?? 'M'] ?? 'Changed'}
-                </span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace' }}>
-                  {selectedFile}
-                </span>
-              </div>
-
-              {/* Diff editor with inline review comments */}
-              <div style={{ flex: 1, minHeight: 0 }}>
-                {fileLoading ? (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    height: '100%', color: 'rgba(255,255,255,0.3)', fontSize: 12,
-                  }}>
-                    Loading diff...
-                  </div>
-                ) : (
-                  <InlineDiffWithComments
-                    key={selectedFile}
-                    file={selectedFile}
-                    language={getLang(selectedFile)}
-                    original={originalContent}
-                    modified={modifiedContent}
-                    comments={allComments.filter((c) => c.file === selectedFile)}
-                  />
-                )}
-              </div>
-            </>
-          ) : (
-            <div style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexDirection: 'column', gap: 8,
-            }}>
-              {loading ? (
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Loading...</span>
-              ) : files.length === 0 ? (
-                <>
-                  <svg width="32" height="32" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 1v14M1 8h14" />
-                  </svg>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>No changes between this branch and main</span>
-                </>
-              ) : (
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Select a file to view changes</span>
-              )}
-            </div>
-          )}
-        </div>
+        {selectedFile && mergeBase && headRef ? (
+          <FileDiffView
+            key={selectedFile}
+            file={selectedFile}
+            status={files.find((f) => f.path === selectedFile)?.status ?? 'M'}
+            worktreePath={worktreePath}
+            baseRef={mergeBase}
+            headRef={headRef}
+            comments={fileComments}
+          />
+        ) : (
+          <div style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexDirection: 'column', gap: 8,
+          }}>
+            {loading ? (
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Loading...</span>
+            ) : files.length === 0 ? (
+              <>
+                <svg width="32" height="32" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 1v14M1 8h14" />
+                </svg>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>No changes between this branch and main</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Select a file to view changes</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

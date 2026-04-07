@@ -610,6 +610,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
         worktreePath,
         branchName,
         sourceCardId: card.id,
+        parentViewId: view?.id, // attach to the branch canvas tab
       })
     }
   }, [])
