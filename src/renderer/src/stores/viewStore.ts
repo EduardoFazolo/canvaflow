@@ -6,8 +6,9 @@ let viewSaveTimer: ReturnType<typeof setTimeout> | null = null
 function persistViews(instances: ViewInstance[]): void {
   if (viewSaveTimer) clearTimeout(viewSaveTimer)
   viewSaveTimer = setTimeout(() => {
-    const worktreeViews = instances.filter((i) => i.worktreePath)
-    window.appState.set('worktree_views', JSON.stringify(worktreeViews))
+    // Persist worktree canvases AND code-review tabs (anything tied to a worktree)
+    const persistable = instances.filter((i) => i.worktreePath || i.type === 'code-review')
+    window.appState.set('worktree_views', JSON.stringify(persistable))
   }, 400)
 }
 
@@ -72,7 +73,14 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       set({ activeId: instance.id })
       return
     }
-    set((s) => ({ instances: [...s.instances, instance], activeId: instance.id }))
+    set((s) => {
+      const newInstances = [...s.instances, instance]
+      // Persist if this view should survive restarts
+      if (instance.worktreePath || instance.type === 'code-review') {
+        persistViews(newInstances)
+      }
+      return { instances: newInstances, activeId: instance.id }
+    })
   },
 
   close: (id) => {
@@ -86,8 +94,9 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       : activeId
     persistViews(remaining)
 
-    // Track closed worktree views so they can be reopened from the kanban board
-    if (inst.worktreePath && inst.sourceCardId) {
+    // Track closed worktree CANVAS views so they can be reopened from the kanban board
+    // (code-review views are recreated on demand, not tracked separately)
+    if (inst.type === 'canvas' && inst.worktreePath && inst.sourceCardId) {
       const alreadyClosed = closedViews.some((v) => v.id === inst.id)
       if (!alreadyClosed) {
         const updated = [...closedViews, { ...inst, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }]
@@ -169,11 +178,10 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       const raw = await window.appState.get('worktree_views')
       if (raw) {
         const views = JSON.parse(raw) as ViewInstance[]
-        const restored = views.map((v) => ({
-          ...v,
-          agentStatus: 'idle' as AgentStatus,
-          agentNodeId: undefined,
-        }))
+        const restored = views.map((v) => v.type === 'code-review'
+          ? v // code-review views have no agent state to reset
+          : { ...v, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }
+        )
         if (restored.length > 0) {
           set((s) => ({ instances: [...s.instances, ...restored] }))
         }

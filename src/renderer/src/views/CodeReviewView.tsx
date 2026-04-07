@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
+import { createHighlighter, type Highlighter } from 'shiki'
 import { useViewStore } from '../stores/viewStore'
 import { useReviewStore } from '../stores/reviewStore'
 import { useNodeStore } from '../stores/nodeStore'
@@ -27,7 +28,9 @@ const DIFF_OPTIONS: Monaco.editor.IDiffEditorConstructionOptions = {
   scrollBeyondLastLine: false,
   smoothScrolling: true,
   readOnly: true,
-  renderSideBySide: true,
+  renderSideBySide: false, // unified view (single column) — better for comments
+  diffWordWrap: 'on',
+  wordWrap: 'on',
   padding: { top: 8, bottom: 12 },
   renderLineHighlight: 'none',
   scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
@@ -100,6 +103,123 @@ interface DiffFile {
 const EMPTY_COMMENTS: ReviewComment[] = []
 
 // ---------------------------------------------------------------------------
+// Shiki highlighter (singleton, lazy-initialized)
+// ---------------------------------------------------------------------------
+
+const SHIKI_LANGS = [
+  'typescript', 'tsx', 'javascript', 'jsx', 'python', 'rust', 'go',
+  'json', 'yaml', 'toml', 'shell', 'bash', 'sql', 'html', 'css',
+  'markdown', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php',
+] as const
+
+const SHIKI_THEME = 'dark-plus'
+
+let highlighterPromise: Promise<Highlighter> | null = null
+
+function getHighlighter(): Promise<Highlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = createHighlighter({
+      themes: [SHIKI_THEME],
+      langs: SHIKI_LANGS as unknown as string[],
+    })
+  }
+  return highlighterPromise
+}
+
+/**
+ * Guess a shiki language from a code span. We don't get explicit language hints
+ * from inline backticks, so we infer from common patterns:
+ *   - identifiers/snake_case → no highlighting (just monospace)
+ *   - things that look like code → typescript (a reasonable default)
+ */
+function guessLang(code: string): string | null {
+  // Very short or just a single identifier — don't bother highlighting
+  if (code.length < 4) return null
+  if (/^[\w./-]+$/.test(code)) return null
+  // Looks like code (has parens, brackets, operators)
+  if (/[()[\]{}<>=]/.test(code)) return 'typescript'
+  return null
+}
+
+/** Highlight a code span with shiki and inject the colored HTML into the target. */
+async function highlightCodeSpan(code: string, target: HTMLElement): Promise<void> {
+  const lang = guessLang(code)
+  if (!lang) return
+  try {
+    const hl = await getHighlighter()
+    const html = hl.codeToHtml(code, { lang, theme: SHIKI_THEME })
+    // Shiki returns a <pre><code>...</code></pre> wrapper — extract the inner spans
+    const tmp = document.createElement('div')
+    tmp.innerHTML = html
+    const codeEl = tmp.querySelector('code')
+    if (codeEl) {
+      target.textContent = ''
+      // Move all child nodes from shiki's <code> into our target
+      while (codeEl.firstChild) target.appendChild(codeEl.firstChild)
+    }
+  } catch {
+    // Fall back to plain text — already set by renderInlineMarkdown
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inline markdown rendering (code, bold, italic) — safe-by-default via DOM
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a subset of inline markdown into a DOM node:
+ *   `code`  → <code>
+ *   **bold** → <strong>
+ *   *italic* → <em>
+ * Everything else is rendered as plain text (escaped via textContent).
+ */
+function renderInlineMarkdown(text: string, target: HTMLElement): void {
+  // Tokens: code spans (highest priority), then bold, then italic
+  const tokenRe = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = tokenRe.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      target.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))
+    }
+    const token = match[0]
+    if (token.startsWith('`')) {
+      const codeText = token.slice(1, -1)
+      const code = document.createElement('code')
+      code.textContent = codeText // initial fallback before highlight resolves
+      code.style.cssText = [
+        'background: rgba(110,118,129,0.4)',
+        'padding: 0.15em 0.4em',
+        'margin: 0 1px',
+        'border-radius: 4px',
+        'font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
+        'font-size: 0.9em',
+        'color: rgba(255,255,255,0.92)',
+      ].join(';')
+      target.appendChild(code)
+      // Async-upgrade with shiki syntax highlighting if applicable
+      void highlightCodeSpan(codeText, code)
+    } else if (token.startsWith('**')) {
+      const strong = document.createElement('strong')
+      strong.textContent = token.slice(2, -2)
+      strong.style.fontWeight = '700'
+      target.appendChild(strong)
+    } else {
+      const em = document.createElement('em')
+      em.textContent = token.slice(1, -1)
+      em.style.fontStyle = 'italic'
+      target.appendChild(em)
+    }
+    lastIndex = match.index + token.length
+  }
+
+  if (lastIndex < text.length) {
+    target.appendChild(document.createTextNode(text.slice(lastIndex)))
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Inline diff viewer with review comment view zones
 // ---------------------------------------------------------------------------
 
@@ -124,12 +244,12 @@ function InlineDiffWithComments({
   }, [])
 
   // Build a comment card DOM node — styled like a GitHub PR review comment
-  const buildCommentCard = useCallback((lineComments: ReviewComment[], width: number): HTMLElement => {
+  const buildCommentCard = useCallback((lineComments: ReviewComment[], width: number, gutterLeft: number): HTMLElement => {
     const container = document.createElement('div')
     container.style.cssText = [
       `width: ${width}px`,
       'box-sizing: border-box',
-      'padding: 8px 16px 12px 60px',
+      `padding: 8px 16px 12px ${gutterLeft + 12}px`,
       'background: #0d0d0d',
       'overflow: hidden',
     ].join(';')
@@ -206,9 +326,8 @@ function InlineDiffWithComments({
       header.appendChild(spacer)
       header.appendChild(badge)
 
-      // Body
+      // Body — render inline markdown (code spans, bold, italic)
       const body = document.createElement('div')
-      body.textContent = c.message
       body.style.cssText = [
         'font-size: 13px',
         'color: rgba(255,255,255,0.82)',
@@ -218,6 +337,7 @@ function InlineDiffWithComments({
         'word-break: break-word',
         'font-family: system-ui, -apple-system, sans-serif',
       ].join(';')
+      renderInlineMarkdown(c.message, body)
 
       item.appendChild(header)
       item.appendChild(body)
@@ -270,13 +390,18 @@ function InlineDiffWithComments({
       }
 
       const sortedLines = [...byLine.keys()].sort((a, b) => a - b)
-      const width = modifiedEditor.getLayoutInfo().width
+      const layout = modifiedEditor.getLayoutInfo()
+      // Available width = total - minimap - vertical scrollbar
+      // The gutter (contentLeft) we account for via internal padding so the
+      // card visually starts after the line numbers, like GitHub.
+      const availableWidth = layout.width - layout.minimap.minimapWidth - layout.verticalScrollbarWidth
+      const gutterLeft = layout.contentLeft
       const newZoneIds: string[] = []
 
       modifiedEditor.changeViewZones((accessor) => {
         for (const line of sortedLines) {
           const lineComments = byLine.get(line)!
-          const card = buildCommentCard(lineComments, width)
+          const card = buildCommentCard(lineComments, availableWidth, gutterLeft)
           const height = measureHeight(card) + 8
 
           const id = accessor.addZone({
