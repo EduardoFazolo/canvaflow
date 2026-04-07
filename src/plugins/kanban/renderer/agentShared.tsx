@@ -254,8 +254,10 @@ export function spawnAgent(opts: {
   worktreePath: string
   taskLabel: string
   prompt: string
+  /** Skip the auto commit/push phases after the agent finishes (e.g. for review-only agents) */
+  skipCommit?: boolean
 }): void {
-  const { agentId, viewKey, worktreePath, taskLabel, prompt } = opts
+  const { agentId, viewKey, worktreePath, taskLabel, prompt, skipCommit } = opts
   const viewStore = useViewStore.getState()
   const view = viewStore.instances.find((i) => i.id === viewKey)
 
@@ -265,7 +267,7 @@ export function spawnAgent(opts: {
       cwd: worktreePath,
       claudeFlags: '--dangerously-skip-permissions',
     })
-    window.coordinator.register(newNode.id, prompt)
+    window.coordinator.register(newNode.id, prompt, skipCommit ? { skipCommit: true } : undefined)
     if (view) viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
   } else if (agentId === 'orchestrate') {
     const pos = findFreePosition(viewKey, 520, 500)

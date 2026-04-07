@@ -860,7 +860,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               'End with a short summary: how many issues by severity, and an overall assessment.',
             ].join('\n')
 
-            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Code review: ${codeReview.card.title}`, prompt })
+            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Code review: ${codeReview.card.title}`, prompt, skipCommit: true })
           }}
           onClose={() => setCodeReview(null)}
         >

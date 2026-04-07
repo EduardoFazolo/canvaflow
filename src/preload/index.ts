@@ -206,8 +206,8 @@ contextBridge.exposeInMainWorld('app', {
 })
 
 contextBridge.exposeInMainWorld('coordinator', {
-  register: (nodeId: string, task: string): Promise<void> =>
-    ipcRenderer.invoke('coordinator:register', nodeId, task),
+  register: (nodeId: string, task: string, opts?: { skipCommit?: boolean }): Promise<void> =>
+    ipcRenderer.invoke('coordinator:register', nodeId, task, opts),
   unregister: (nodeId: string): Promise<void> =>
     ipcRenderer.invoke('coordinator:unregister', nodeId),
   getStatus: (): Promise<Array<{ nodeId: string; phase: string; taskSent: boolean }>> =>
