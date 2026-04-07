@@ -120,8 +120,8 @@ export function ViewTabBar(): React.ReactElement {
                 window.browser.setCanvasActive(true)
               } else {
                 window.browser.setCanvasActive(false)
+                activate(inst.id)
               }
-              activate(inst.id)
             }}
             style={{
               display: 'flex',

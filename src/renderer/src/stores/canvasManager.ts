@@ -43,11 +43,16 @@ function saveCurrentCanvas(): void {
 }
 
 /**
- * Switch to a canvas. This is the ONE function that swaps what the canvas displays.
- * Called from exactly two places: tab clicks and the kanban worktree flow.
+ * Switch to a canvas. This is the ONE function that swaps what the canvas displays
+ * AND activates the corresponding tab. These two operations must always be paired —
+ * calling one without the other causes the tab and canvas to go out of sync.
  */
 export function switchCanvas(canvasId: string): void {
-  if (_activeCanvasId === canvasId) return
+  if (_activeCanvasId === canvasId) {
+    // Even if already on this canvas, ensure the tab is in sync
+    useViewStore.getState().activate(canvasId)
+    return
+  }
 
   // Save current canvas state
   if (_activeCanvasId) saveCurrentCanvas()
@@ -81,6 +86,9 @@ export function switchCanvas(canvasId: string): void {
   }
 
   _activeCanvasId = canvasId
+
+  // Activate the corresponding tab so the UI stays in sync
+  useViewStore.getState().activate(canvasId)
 }
 
 /**

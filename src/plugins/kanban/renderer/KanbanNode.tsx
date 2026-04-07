@@ -24,6 +24,29 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
+/** Find a position that doesn't overlap existing nodes on the target canvas. */
+function findFreePosition(canvasId: string, nodeWidth: number, nodeHeight: number, padding = 40): { x: number; y: number } {
+  const existing = useNodeStore.getState().workspaceNodes.get(canvasId)
+  if (!existing || existing.size === 0) return { x: 100, y: 100 }
+
+  const rects = Array.from(existing.values()).map((n) => ({
+    x: n.x, y: n.y, w: n.width, h: n.height,
+  }))
+
+  // Place to the right of the rightmost node
+  let maxRight = 0
+  let bestY = 100
+  for (const r of rects) {
+    const right = r.x + r.w
+    if (right > maxRight) {
+      maxRight = right
+      bestY = r.y
+    }
+  }
+
+  return { x: maxRight + padding, y: bestY }
+}
+
 // ---------------------------------------------------------------------------
 // Drag state (module-level to avoid re-renders during drag)
 // ---------------------------------------------------------------------------
@@ -132,7 +155,7 @@ function CardItem({
         onMouseLeave={() => setHovered(false)}
         onClick={() => {
           if (worktreeView) {
-            useViewStore.getState().activate(worktreeView.id)
+            switchCanvas(worktreeView.id)
           }
         }}
         onDoubleClick={(e) => {
@@ -1038,7 +1061,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
           const existingView = useViewStore.getState().getViewByCardId(card.id)
           if (existingView) {
             // Just switch to it and move the card normally
-            useViewStore.getState().activate(existingView.id)
+            switchCanvas(existingView.id)
             moveCard(srcColId, targetColId, cardId, insertIndex)
           } else {
             setWorktreeDrop({ card, sourceColId: srcColId, targetColId })
@@ -1178,7 +1201,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             })
             const viewKey = viewId
 
-            // 3. Switch to the worktree canvas
+            // 3. Switch to the worktree canvas (also activates the tab)
             switchCanvas(viewKey)
 
             // 4. Move card to "In Progress" (operates on kanban store, unaffected by node store)
@@ -1278,14 +1301,16 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             ].join('\n')
 
             if (agentId === 'claude') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
+              const pos = findFreePosition(viewKey, 700, 480)
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', pos.x, pos.y, {
                 cwd: worktreePath,
                 claudeFlags: '--dangerously-skip-permissions',
               })
               window.coordinator.register(newNode.id, prompt)
               viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
             } else if (agentId === 'orchestrate') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
+              const pos = findFreePosition(viewKey, 520, 500)
+              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', pos.x, pos.y, {
                 task: `Code review: ${codeReview.card.title}`,
                 status: 'idle',
                 subagentIds: [],
@@ -1294,8 +1319,8 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               window.orchestrator.start(newNode.id, {
                 task: `Code review: ${codeReview.card.title}`,
                 markdown: prompt,
-                worldX: 100,
-                worldY: 100,
+                worldX: pos.x,
+                worldY: pos.y,
                 workspacePath: worktreePath,
               })
             }
