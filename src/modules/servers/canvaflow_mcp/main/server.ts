@@ -76,6 +76,7 @@ const routes: Record<string, Record<string, RouteHandler>> = {
       wc.send('canvaflow-mcp:review-comments', payload.reviewId, valid)
       json(res, 200, { ok: true, count: valid.length })
     },
+
   },
 
   GET: {
@@ -90,10 +91,21 @@ const routes: Record<string, Record<string, RouteHandler>> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Ensure the CanvaFlow MCP is configured in a directory's .claude/settings.json.
- * Merges with any existing config (e.g. if Lovable MCP is already there).
+ * Ensure the CanvaFlow MCP server is configured in a directory's
+ * .claude/settings.json. Merges with any existing config — we never overwrite
+ * keys we don't own (e.g. other MCPs the user may have configured).
+ *
+ * Also performs an idempotent cleanup of any stale CanvaFlow SessionStart hook
+ * entries from earlier versions of the app (we no longer use hooks). The old
+ * config left a `bash .../mcps/canvaflow/hooks/session-start.sh` entry that now
+ * points to a deleted script — claude prints "SessionStart:startup hook error"
+ * on every startup if it's still there. This block self-heals worktrees on
+ * the next claude spawn.
+ *
+ * Exported so other main-process code (e.g. the PTY spawner) can call it
+ * directly without going through IPC.
  */
-function injectMcpConfig(targetDir: string): void {
+export function injectMcpConfig(targetDir: string): void {
   const mcpIndexPath = join(app.getAppPath(), 'mcps/canvaflow/index.ts')
   const claudeDir = join(targetDir, '.claude')
   const settingsPath = join(claudeDir, 'settings.json')
@@ -111,6 +123,33 @@ function injectMcpConfig(targetDir: string): void {
   (cfg.mcpServers as Record<string, unknown>).canvaflow = {
     command: 'bun',
     args: ['run', mcpIndexPath],
+  }
+
+  // --- Cleanup: remove any stale canvaflow SessionStart hook entries
+  if (cfg.hooks && typeof cfg.hooks === 'object') {
+    const hooks = cfg.hooks as Record<string, unknown>
+    if (Array.isArray(hooks.SessionStart)) {
+      const cleaned = (hooks.SessionStart as unknown[]).filter((entry) => {
+        if (!entry || typeof entry !== 'object') return true
+        const innerHooks = (entry as Record<string, unknown>).hooks
+        if (!Array.isArray(innerHooks)) return true
+        // Drop the entry if any of its hooks reference our old session-start.sh
+        return !innerHooks.some((h) => {
+          if (!h || typeof h !== 'object') return false
+          const cmd = (h as Record<string, unknown>).command
+          return typeof cmd === 'string' && cmd.includes('mcps/canvaflow/hooks/session-start.sh')
+        })
+      })
+      if (cleaned.length === 0) {
+        delete hooks.SessionStart
+      } else {
+        hooks.SessionStart = cleaned
+      }
+      // If hooks ended up empty, remove the key entirely
+      if (Object.keys(hooks).length === 0) {
+        delete cfg.hooks
+      }
+    }
   }
 
   writeFileSync(settingsPath, JSON.stringify(cfg, null, 2))

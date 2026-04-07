@@ -1,11 +1,13 @@
 import { ipcMain, WebContents } from 'electron'
 import * as os from 'os'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { tmuxManager } from './tmux'
 import { AGENT_SIGNAL_PORT } from '../modules/servers/agentic_signals/shared/constants'
 import { detectAgentStatusFromTerminalBuffer, sanitizeTerminalOutput } from '../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../modules/servers/agentic_signals/shared/debug'
 import { coordinatorOnData } from './agentCoordinator'
+import { injectMcpConfig } from '../modules/servers/canvaflow_mcp/main/server'
 import type { AgentStatus } from '../modules/servers/agentic_signals/shared/types'
 
 interface IPty {
@@ -20,7 +22,7 @@ const ptys = new Map<string, IPty>()
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export function setupPtyHandlers(getWebContents: () => WebContents | null): void {
-  ipcMain.handle('terminal:create', async (_event, id: string, workspaceId: string, cwd: string, shell: string) => {
+  ipcMain.handle('terminal:create', async (_event, id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) => {
     if (ptys.has(id)) return
 
     const pty = await import('node-pty')
@@ -41,8 +43,12 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     const existingPath = baseEnv.PATH ?? ''
     const spawnOpts = {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      // Use the renderer-supplied dimensions when available so the PTY (and the
+      // process inside it) starts at the correct terminal size. Spawning at the
+      // wrong size and resizing afterwards races with claude's startup banner
+      // and produces literal escape-sequence artifacts.
+      cols: cols && cols > 0 ? cols : 80,
+      rows: rows && rows > 0 ? rows : 24,
       env: {
         ...baseEnv,
         TERM: 'xterm-256color',
@@ -54,8 +60,31 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     }
     // Support shell strings with args (e.g. "claude --permission-mode bypassPermissions")
     const shellParts = defaultShell.split(/\s+/)
-    const shellBin = shellParts[0]
-    const shellArgs = shellParts.slice(1)
+    let shellBin = shellParts[0]
+    let shellArgs = shellParts.slice(1)
+
+    // Claude startup race: claude queries the terminal (\e[c — Device Attributes)
+    // and enables focus tracking (\e[?1004h) BEFORE switching the PTY to raw mode.
+    // During that brief window the PTY is in cooked+echo mode, so xterm's responses
+    // (\e[?1;2c, \e[O) get echoed back to stdout and appear as literal text
+    // (^[[?1;2c, ^[[O) at the top of the terminal.
+    //
+    // Fix: disable echo on the PTY BEFORE claude starts, by wrapping the command
+    // with `stty -echo` inside a bash subshell that then `exec`s claude. The exec
+    // replaces bash so no extra process lingers, and claude inherits the no-echo
+    // termios. When claude later switches to full raw mode, echo is already off
+    // so nothing changes.
+    if (shellBin === 'claude') {
+      // Make sure the CanvaFlow MCP + SessionStart hook are installed in the cwd
+      // BEFORE claude starts. Claude reads .claude/settings.json on startup, so
+      // the file must already exist by the time we exec it. This catches every
+      // spawn path (kanban, sidebar, manual, restart) in one place.
+      try { injectMcpConfig(defaultCwd) } catch (e) { console.error('[pty] injectMcpConfig failed:', e) }
+
+      const claudeCmd = [shellBin, ...shellArgs].join(' ')
+      shellBin = 'bash'
+      shellArgs = ['-c', `stty -echo 2>/dev/null; exec ${claudeCmd}`]
+    }
 
     let ptyProcess: Awaited<ReturnType<typeof pty.spawn>>
     try {
@@ -149,6 +178,26 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
 
   ipcMain.handle('terminal:resize', (_event, id: string, cols: number, rows: number) => {
     try { ptys.get(id)?.resize(cols, rows) } catch { /* PTY already closed */ }
+  })
+
+  /**
+   * Check whether a Claude Code session JSONL exists for a given cwd + session ID.
+   * Used by ClaudeNode to decide whether `--resume <id>` is safe (the JSONL must
+   * exist) or whether to fall back to a plain `claude` start.
+   *
+   * Claude stores sessions at: ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl
+   * The encoded-cwd is the absolute cwd path with BOTH '/' AND '.' replaced by
+   * '-'. So `/Users/foo/.worktrees/bar` becomes `-Users-foo--worktrees-bar`
+   * (note the double dash where `/.` was).
+   */
+  ipcMain.handle('claude:sessionExists', (_event, cwd: string, sessionId: string): boolean => {
+    if (!cwd || !sessionId) return false
+    const rawCwd = cwd.startsWith('~/') ? os.homedir() + cwd.slice(1)
+                 : cwd === '~'         ? os.homedir()
+                 : cwd
+    const encoded = rawCwd.replace(/[/.]/g, '-')
+    const sessionPath = join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`)
+    return existsSync(sessionPath)
   })
 
   ipcMain.handle('terminal:kill', async (_event, id: string, workspaceId: string, deleteSession: boolean) => {

@@ -235,16 +235,27 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     // Register so beforeunload can serialize this terminal synchronously
     registerTerminal(node.id, () => serializeAddonRef.current?.serialize() ?? '')
 
-    // Restore previous scrollback from SQLite (written before tmux output starts)
+    // Restore previous scrollback from SQLite (written before tmux output starts).
+    //
+    // For agent nodes (claude, orchestrator) we deliberately skip this: the agent
+    // process redraws its own banner on startup, and overlaying the previous visual
+    // snapshot causes literal escape-sequence artifacts and double banners. The
+    // conversation history itself is preserved via `claude --resume <sessionId>`,
+    // which is what actually matters to the user.
     const savedState = node.props.serializedState as string | undefined
-    if (savedState) {
+    const isAgentNode = node.type === 'claude' || node.type === 'orchestrator'
+    if (savedState && !isAgentNode) {
       term.write(savedState, () => term.scrollToBottom())
     }
 
-    // Start PTY (via tmux if available)
+    // Start PTY at the FITTED dimensions — not the default 80x24. Spawning
+    // with the wrong size and resizing afterwards sends SIGWINCH mid-startup,
+    // which races with Claude's banner draw and produces literal escape-
+    // sequence artifacts (^[[?1;2c, ^[[O). Spawning at the right size from
+    // the start avoids the race entirely.
     const cwd = (node.props.cwd as string) || ''
     const shell = (node.props.shell as string) || appSettings.shell
-    window.terminal.create(node.id, workspaceId, cwd, shell)
+    window.terminal.create(node.id, workspaceId, cwd, shell, term.cols, term.rows)
 
     // PTY → xterm (also signals activity to the navbar indicator)
     const unsub = window.terminal.onData(node.id, (data) => {

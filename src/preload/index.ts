@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AgentSignal, AgentFileChange } from '../modules/servers/agentic_signals/shared/types'
+
+// Each terminal/agent node attaches its own listener to channels like
+// `terminal:data`, `agent:status`, `coordinator:status` etc., filtering by
+// node ID inside the listener. With many agents on a canvas this exceeds
+// Node's default warning threshold of 10 listeners per channel. Bump it to
+// a reasonable ceiling so the warning doesn't spam the console.
+ipcRenderer.setMaxListeners(100)
 import type {
   OrchestratorStartPayload,
   SubagentSpawnedEvent,
@@ -16,14 +23,18 @@ interface NodeMetadataRow {
   description?: string | null
   pinned?: number
   agentRole?: string | null
+  agentSessionId?: string | null
 }
 
 contextBridge.exposeInMainWorld('terminal', {
-  create: (id: string, workspaceId: string, cwd: string, shell: string) =>
-    ipcRenderer.invoke('terminal:create', id, workspaceId, cwd, shell),
+  create: (id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) =>
+    ipcRenderer.invoke('terminal:create', id, workspaceId, cwd, shell, cols, rows),
 
   write: (id: string, data: string) =>
     ipcRenderer.send('terminal:write', id, data),
+
+  sessionExists: (cwd: string, sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke('claude:sessionExists', cwd, sessionId),
 
   resize: (id: string, cols: number, rows: number) =>
     ipcRenderer.invoke('terminal:resize', id, cols, rows),

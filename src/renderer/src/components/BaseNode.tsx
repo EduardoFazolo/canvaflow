@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { NodeData } from '../stores/nodeStore'
 import { useNodeStore } from '../stores/nodeStore'
 import { useCameraStore } from '../stores/cameraStore'
@@ -31,6 +32,186 @@ const btnCloseHover: React.CSSProperties = {
   ...btnBase,
   background: 'rgba(239,68,68,0.15)',
   color: 'rgba(239,68,68,0.85)',
+}
+
+// ---------------------------------------------------------------------------
+// Agent info popover — small "i" button shown on agent nodes (claude/orchestrator)
+// ---------------------------------------------------------------------------
+
+function AgentInfoButton({ node }: { node: NodeData }): React.ReactElement {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  // Position the popover below-right of the button (anchored to viewport via portal).
+  // Recomputes on open and on window resize so the popover stays glued to the button.
+  useLayoutEffect(() => {
+    if (!open) return
+    const compute = (): void => {
+      const btn = buttonRef.current
+      if (!btn) return
+      const r = btn.getBoundingClientRect()
+      // Default: drop below the button, right-aligned to the button's left edge.
+      const POPOVER_W = 320
+      let left = r.left
+      // If popover would overflow viewport on the right, shift it left.
+      if (left + POPOVER_W > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - POPOVER_W - 12)
+      }
+      setPos({ top: r.bottom + 6, left })
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    window.addEventListener('scroll', compute, true)
+    return () => {
+      window.removeEventListener('resize', compute)
+      window.removeEventListener('scroll', compute, true)
+    }
+  }, [open])
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (buttonRef.current?.contains(target)) return
+      if (popoverRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const t = setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [open])
+
+  const cwd = (node.props.cwd as string | undefined) ?? null
+  const role = node.agentRole ?? null
+  const sessionId = node.agentSessionId ?? null
+  const created = node.createdAt ? new Date(node.createdAt) : null
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        style={{ ...btnBase, ...(open ? btnHover : null) }}
+        data-no-canvas-gesture
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
+        title="Agent info"
+        onMouseEnter={(e) => { if (!open) Object.assign((e.currentTarget as HTMLElement).style, btnHover) }}
+        onMouseLeave={(e) => { if (!open) Object.assign((e.currentTarget as HTMLElement).style, btnBase) }}
+      >
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/>
+          <circle cx="6" cy="3.4" r="0.7" fill="currentColor"/>
+          <path d="M6 5.6v3.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {open && pos && createPortal(
+        <div
+          ref={popoverRef}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            zIndex: 1000000,
+            width: 320,
+            background: '#0d1117',
+            border: '1px solid #30363d',
+            borderRadius: 8,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.4)',
+            padding: '10px 12px',
+            cursor: 'default',
+          }}
+        >
+          <div style={{
+            fontSize: 10, fontWeight: 700,
+            color: 'rgba(255,255,255,0.4)',
+            textTransform: 'uppercase', letterSpacing: '0.08em',
+            marginBottom: 8,
+          }}>
+            Agent Info
+          </div>
+
+          <InfoRow label="Type" value={node.type} />
+          <InfoRow
+            label="Role"
+            value={role ?? 'untagged'}
+            valueColor={role === 'main' ? '#22c55e' : role === 'reviewer' ? '#14b8a6' : 'rgba(255,255,255,0.4)'}
+          />
+          <InfoRow
+            label="Session ID"
+            value={sessionId ?? '— not yet reported —'}
+            mono
+            copyable={!!sessionId}
+            valueColor={sessionId ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.3)'}
+          />
+          <InfoRow label="Node ID" value={node.id} mono copyable />
+          {cwd && <InfoRow label="cwd" value={cwd} mono />}
+          {created && (
+            <InfoRow
+              label="Created"
+              value={created.toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            />
+          )}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+function InfoRow({
+  label, value, mono, copyable, valueColor,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  copyable?: boolean
+  valueColor?: string
+}): React.ReactElement {
+  const [copied, setCopied] = useState(false)
+  const onCopy = useCallback((): void => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    })
+  }, [value])
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '4px 0' }}>
+      <span style={{
+        fontSize: 11, color: 'rgba(255,255,255,0.4)',
+        flexShrink: 0, width: 78,
+        fontFamily: 'system-ui, sans-serif',
+      }}>
+        {label}
+      </span>
+      <span
+        onClick={copyable ? onCopy : undefined}
+        title={copyable ? (copied ? 'Copied!' : 'Click to copy') : undefined}
+        style={{
+          fontSize: 11.5,
+          color: valueColor ?? 'rgba(255,255,255,0.82)',
+          fontFamily: mono ? 'ui-monospace, "JetBrains Mono", Menlo, monospace' : 'system-ui, sans-serif',
+          flex: 1, minWidth: 0,
+          wordBreak: 'break-all',
+          cursor: copyable ? 'pointer' : 'default',
+          userSelect: 'text',
+        }}
+      >
+        {copied ? '✓ Copied' : value}
+      </span>
+    </div>
+  )
 }
 
 function TitleField({ node, focused }: { node: NodeData; focused: boolean }): React.ReactElement {
@@ -303,6 +484,11 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
         <TitleField node={node} focused={focused} />
 
         {titleExtra}
+
+        {/* Agent info button (claude/orchestrator only) */}
+        {(node.type === 'claude' || node.type === 'orchestrator') && (
+          <AgentInfoButton node={node} />
+        )}
 
         {/* Agent status dot */}
         {agentStatus && agentStatus !== 'idle' && (() => {

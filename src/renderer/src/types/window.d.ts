@@ -24,6 +24,8 @@ interface NodeMetadataRow {
   pinned: number // 0 | 1
   /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') */
   agentRole: string | null
+  /** Claude Code session ID — set when the agent reports it via the SessionStart hook */
+  agentSessionId: string | null
 }
 
 interface WorkspaceRow {
@@ -71,7 +73,8 @@ declare global {
     }
 
     terminal: {
-      create: (id: string, workspaceId: string, cwd: string, shell: string) => Promise<void>
+      create: (id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) => Promise<void>
+      sessionExists: (cwd: string, sessionId: string) => Promise<boolean>
       write: (id: string, data: string) => void
       resize: (id: string, cols: number, rows: number) => void
       kill: (id: string, workspaceId: string, deleteSession: boolean) => Promise<void>

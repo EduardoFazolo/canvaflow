@@ -29,6 +29,8 @@ export interface NodeData {
   pinned?: boolean
   /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') — null/undefined for legacy or non-agents */
   agentRole?: string | null
+  /** Claude Code session ID — populated by the SessionStart hook so the agent can be resumed across restarts */
+  agentSessionId?: string | null
   // Agent status — ephemeral, reset on restart
   agentStatus?: AgentStatus
 }
@@ -222,6 +224,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     // workspace, not the worktree. worktreeCwd takes priority.
     const { worktreeCwd } = get()
     const finalProps = worktreeCwd ? { ...props, cwd: worktreeCwd } : props
+    // Allocate a Claude session ID synchronously for claude nodes — must be on
+    // the node BEFORE the first render so ClaudeNode sees it immediately and
+    // passes `--session-id <uuid>` to claude. Deferring (setTimeout) creates a
+    // race where ClaudeNode mounts first, sees null, and caches "plain" mode.
+    const agentSessionId = type === 'claude' ? crypto.randomUUID() : undefined
     const node: NodeData = {
       id, type, x, y,
       ...DEFAULT_SIZES[type],
@@ -231,16 +238,23 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       contentScale: 1,
       props: finalProps,
       createdAt: Date.now(),
+      agentSessionId,
     }
     set((s) => {
       const nodes = new Map(s.nodes)
       nodes.set(id, node)
       return { ...syncBack(nodes, s), focusedNodeId: id }
     })
+    // Mark fresh + persist the session ID to DB (fire-and-forget)
+    if (agentSessionId) {
+      freshlySpawnedAgentNodes.add(id)
+      void window.agent.saveMetadata(id, { agentSessionId })
+    }
     // Freshly created nodes activate immediately — no "Click to start" gate.
     // The staggered queue is only for bulk-loading from DB on startup.
     useActivationStore.getState().activateNow(id)
-    maybeAutoTagAsMain(id, get().activeWorkspaceId, type)
+    const activeCanvasId = get().activeWorkspaceId
+    maybeAutoTagAsMain(id, activeCanvasId, type)
     return node
   },
 
@@ -249,6 +263,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const zIndex = get().getMaxZIndex() + 1
     const { worktreeCwd } = get()
     const finalProps = worktreeCwd ? { ...props, cwd: worktreeCwd } : props
+    // Allocate session ID synchronously — see add() for the rationale.
+    const agentSessionId = type === 'claude' ? crypto.randomUUID() : undefined
     const node: NodeData = {
       id, type, x, y,
       ...DEFAULT_SIZES[type],
@@ -258,6 +274,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       contentScale: 1,
       props: finalProps,
       createdAt: Date.now(),
+      agentSessionId,
     }
     set((s) => {
       // Add to the SPECIFIED canvas, not whatever activeWorkspaceId happens to be
@@ -271,6 +288,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       }
       return { workspaceNodes }
     })
+    if (agentSessionId) {
+      freshlySpawnedAgentNodes.add(id)
+      void window.agent.saveMetadata(id, { agentSessionId })
+    }
     useActivationStore.getState().activateNow(id)
     maybeAutoTagAsMain(id, canvasId, type)
     return node
@@ -283,11 +304,27 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   }),
 
   update: (id, patch) => set((s) => {
-    const node = s.nodes.get(id)
-    if (!node) return s
-    const nodes = new Map(s.nodes)
-    nodes.set(id, { ...node, ...patch })
-    return syncBack(nodes, s)
+    // Try the active canvas first (the common case)
+    const activeNode = s.nodes.get(id)
+    if (activeNode) {
+      const nodes = new Map(s.nodes)
+      nodes.set(id, { ...activeNode, ...patch })
+      return syncBack(nodes, s)
+    }
+    // Fall back: search all workspace canvases. spawnAgent often updates a
+    // node on a worktree canvas that isn't currently visible (e.g. AI Review
+    // spawning into a hidden canvas), so the active-canvas-only path would
+    // silently drop the patch.
+    for (const [canvasId, canvasNodes] of s.workspaceNodes.entries()) {
+      const node = canvasNodes.get(id)
+      if (!node) continue
+      const updated = new Map(canvasNodes)
+      updated.set(id, { ...node, ...patch })
+      const workspaceNodes = new Map(s.workspaceNodes)
+      workspaceNodes.set(canvasId, updated)
+      return { workspaceNodes }
+    }
+    return s
   }),
 
   bringToFront: (id) => set((s) => {
@@ -313,6 +350,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     return Math.max(...Array.from(nodes.values()).map(n => n.zIndex))
   },
 }))
+
+// ---------------------------------------------------------------------------
+// Tracks claude nodes that were freshly spawned in the current app session.
+// ClaudeNode reads this to decide whether to use `--session-id <uuid>` (fresh,
+// claude creates the session) vs `--resume <uuid>` (restart, reattach to an
+// existing session). Module-level so it survives remounts but resets on app
+// restart — exactly the lifetime we want.
+// ---------------------------------------------------------------------------
+export const freshlySpawnedAgentNodes = new Set<string>()
 
 // ---------------------------------------------------------------------------
 // Auto-tag the first agent on a canvas as the "main" agent.

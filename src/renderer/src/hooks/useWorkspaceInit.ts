@@ -201,6 +201,7 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
                 description: meta.description ?? undefined,
                 pinned: meta.pinned === 1,
                 agentRole: meta.agentRole ?? null,
+                agentSessionId: meta.agentSessionId ?? null,
               })
             }
           }
