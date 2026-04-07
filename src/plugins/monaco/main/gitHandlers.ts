@@ -114,6 +114,71 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
     } catch { return null }
   })
 
+  ipc.handle('git:fileAtRef', async (_e, rootPath: string, ref: string, filePath: string): Promise<string | null> => {
+    try {
+      const rel = filePath.startsWith(rootPath) ? filePath.slice(rootPath.length).replace(/^\//, '') : filePath
+      return await git(rootPath).show([`${ref}:${rel}`])
+    } catch { return null }
+  })
+
+  ipc.handle('git:diffBranchFiles', async (_e, rootPath: string, branchName: string, baseBranch: string = 'main') => {
+    try {
+      const g = git(rootPath)
+      const headRef = branchName || 'HEAD'
+      // Resolve the base ref — worktrees may not have local main/master,
+      // so try multiple candidates in order of likelihood
+      const candidates = [
+        `origin/${baseBranch}`,
+        baseBranch,
+        'origin/main',
+        'origin/master',
+        'main',
+        'master',
+      ]
+      let baseRef = ''
+      for (const candidate of candidates) {
+        try {
+          await g.raw(['rev-parse', '--verify', candidate])
+          baseRef = candidate
+          break
+        } catch { /* try next */ }
+      }
+      if (!baseRef) throw new Error(`Could not find base branch ref (tried: ${candidates.join(', ')})`)
+      // Find the merge base
+      const mergeBase = (await g.raw(['merge-base', baseRef, headRef])).trim()
+      // Get the list of changed files with status
+      const output = await g.raw(['diff', '--name-status', mergeBase, headRef])
+      const files: Array<{ path: string; status: string }> = []
+      for (const line of output.split('\n')) {
+        if (!line.trim()) continue
+        const [status, ...pathParts] = line.split('\t')
+        const filePath = pathParts.join('\t')
+        if (filePath) files.push({ path: filePath, status: status.charAt(0) })
+      }
+      // Get diff stats (additions/deletions per file)
+      const statOutput = await g.raw(['diff', '--numstat', mergeBase, headRef])
+      const stats: Record<string, { additions: number; deletions: number }> = {}
+      for (const line of statOutput.split('\n')) {
+        if (!line.trim()) continue
+        const [add, del, ...pathParts] = line.split('\t')
+        const fp = pathParts.join('\t')
+        if (fp) stats[fp] = { additions: parseInt(add) || 0, deletions: parseInt(del) || 0 }
+      }
+      return {
+        mergeBase,
+        branch: headRef,
+        files: files.map(f => ({
+          ...f,
+          additions: stats[f.path]?.additions ?? 0,
+          deletions: stats[f.path]?.deletions ?? 0,
+        })),
+      }
+    } catch (e) {
+      console.error('[git:diffBranchFiles]', e)
+      return { mergeBase: '', branch: '', files: [] }
+    }
+  })
+
   ipc.handle('git:diff', async (_e, rootPath: string, filePath: string, staged: boolean): Promise<string> => {
     try {
       return staged

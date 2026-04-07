@@ -452,10 +452,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     branchName: string
     conflictingFiles: string[]
   } | null>(null)
-  const [codeReview, setCodeReview] = useState<{
-    card: KanbanCard
-    branchName: string
-  } | null>(null)
 
   // Load kanban data for this workspace on mount
   useEffect(() => {
@@ -587,7 +583,35 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
   }, [])
 
   const onRequestReview = useCallback((card: KanbanCard, branchName: string) => {
-    setCodeReview({ card, branchName })
+    // Find the worktree path for this card
+    const viewStore = useViewStore.getState()
+    let view = viewStore.instances.find((i) => i.sourceCardId === card.id)
+    if (!view) {
+      const closed = viewStore.closedViews.find((i) => i.sourceCardId === card.id)
+      if (closed) {
+        viewStore.reopenClosedView(closed.id)
+        view = viewStore.instances.find((i) => i.id === closed.id)
+      }
+    }
+    const worktreePath = view?.worktreePath
+    if (!worktreePath) return
+
+    // Open a code-review view tab
+    const reviewId = `review-${card.id}`
+    const existing = viewStore.instances.find((i) => i.id === reviewId)
+    if (existing) {
+      viewStore.activate(reviewId)
+    } else {
+      viewStore.open({
+        id: reviewId,
+        type: 'code-review',
+        label: `Review: ${branchName}`,
+        closeable: true,
+        worktreePath,
+        branchName,
+        sourceCardId: card.id,
+      })
+    }
   }, [])
 
   // ----- External drop (card dragged onto canvas) -----
@@ -811,80 +835,6 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
           }}
           onClose={() => setWorktreeDrop(null)}
         />
-      )}
-      {codeReview && (
-        <AgentActionModal
-          accentColor="rgba(167,139,250,0.2)"
-          headerIcon={
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="6.5" cy="6.5" r="5" />
-              <line x1="10" y1="10" x2="14.5" y2="14.5" />
-            </svg>
-          }
-          headerLabel="Code Review"
-          pickerLabel="Review with"
-          onConfirm={async (agentId: AgentId) => {
-            const { viewKey, worktreePath } = resolveCardWorktree(codeReview.card.id)
-            setCodeReview(null)
-
-            const prompt = [
-              `You are a code reviewer. Your ONLY job is to review the code changes on this branch (${codeReview.branchName}).`,
-              '',
-              'IMPORTANT CONSTRAINTS:',
-              '- You must ONLY review code — do NOT modify, fix, or change any files.',
-              '- Focus EXCLUSIVELY on the diff between this branch and main.',
-              '- Do NOT look at or comment on code that was not changed in this branch.',
-              '',
-              'Steps:',
-              '1. Run: git diff main...HEAD',
-              '   This shows you ONLY the changes introduced by this branch.',
-              '2. If the diff is large, also run: git diff main...HEAD --stat',
-              '   to get an overview of which files were changed.',
-              '3. Carefully analyze every change in the diff.',
-              '',
-              'Review the changes for:',
-              '- **Bugs**: Logic errors, off-by-one errors, null/undefined issues, race conditions, missing error handling',
-              '- **Code smells**: Overly complex functions, deep nesting, magic numbers, duplicated logic, god objects',
-              '- **Sloppiness**: Unused imports/variables, leftover debug code (console.log, TODO hacks), inconsistent naming',
-              '- **Security**: Injection vulnerabilities, exposed secrets, unsafe deserialization, missing input validation',
-              '- **Performance**: Unnecessary re-renders, N+1 queries, missing memoization where it matters, unbounded loops',
-              '- **Readability**: Unclear variable/function names, missing context for non-obvious logic, overly clever code',
-              '',
-              'For each issue found, report:',
-              '- The file and approximate location',
-              '- What the problem is',
-              '- Severity (critical / warning / nit)',
-              '- A brief suggestion for how to fix it',
-              '',
-              'If the code looks clean, say so — do not invent issues.',
-              'End with a short summary: how many issues by severity, and an overall assessment.',
-            ].join('\n')
-
-            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Code review: ${codeReview.card.title}`, prompt, skipCommit: true })
-          }}
-          onClose={() => setCodeReview(null)}
-        >
-          <div style={{
-            fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4,
-            overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4,
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any,
-          }}>
-            {codeReview.card.title}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 16, fontFamily: 'monospace' }}>
-            {codeReview.branchName}
-          </div>
-          <div style={{
-            marginBottom: 16, padding: '10px 12px',
-            background: 'rgba(167,139,250,0.04)', borderRadius: 8,
-            border: '1px solid rgba(167,139,250,0.1)',
-          }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
-              The reviewer will analyze <strong style={{ color: 'rgba(167,139,250,0.8)' }}>only the diff</strong> between
-              this branch and main, looking for bugs, code smells, sloppiness, and general code quality issues.
-            </div>
-          </div>
-        </AgentActionModal>
       )}
       <div
         style={{

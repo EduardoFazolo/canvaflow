@@ -233,6 +233,12 @@ declare global {
         files: Array<{ path: string; index: string; working: string }>
       }>
       fileAtHead: (rootPath: string, filePath: string) => Promise<string | null>
+      fileAtRef: (rootPath: string, ref: string, filePath: string) => Promise<string | null>
+      diffBranchFiles: (rootPath: string, branchName: string, baseBranch?: string) => Promise<{
+        mergeBase: string
+        branch: string
+        files: Array<{ path: string; status: string; additions: number; deletions: number }>
+      }>
       diff: (rootPath: string, filePath: string, staged: boolean) => Promise<string>
       stage: (rootPath: string, filePaths: string[]) => Promise<void>
       unstage: (rootPath: string, filePaths: string[]) => Promise<void>

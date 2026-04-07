@@ -36,7 +36,17 @@ function GitBranchIcon(): React.ReactElement {
   )
 }
 
+function CodeReviewTabIcon(): React.ReactElement {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <circle cx="4.5" cy="4.5" r="3.2" stroke="currentColor" strokeWidth="1"/>
+      <line x1="6.8" y1="6.8" x2="9.5" y2="9.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
 function tabIcon(inst: ViewInstance): React.ReactElement {
+  if (inst.type === 'code-review') return <CodeReviewTabIcon />
   if (inst.worktreePath) return <GitBranchIcon />
   if (inst.type === 'canvas') return <CanvasTabIcon />
   if (inst.type === 'settings') return <SettingsTabIcon />
@@ -105,10 +115,13 @@ export function ViewTabBar(): React.ReactElement {
       {visibleInstances.map((inst) => {
         const isActive = inst.id === activeId
         const isWorktree = !!inst.worktreePath
-        const labelColor = isWorktree
-          ? (isActive ? '#22d3ee' : 'rgba(34,211,238,0.5)')
-          : (isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)')
-        const accentColor = isWorktree ? '#22d3ee' : '#a78bfa'
+        const isCodeReview = inst.type === 'code-review'
+        const labelColor = isCodeReview
+          ? (isActive ? '#a78bfa' : 'rgba(167,139,250,0.5)')
+          : isWorktree
+            ? (isActive ? '#22d3ee' : 'rgba(34,211,238,0.5)')
+            : (isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)')
+        const accentColor = isCodeReview ? '#a78bfa' : isWorktree ? '#22d3ee' : '#a78bfa'
 
         return (
           <div
@@ -141,16 +154,16 @@ export function ViewTabBar(): React.ReactElement {
             }}
             onMouseEnter={(e) => {
               if (!isActive) {
-                (e.currentTarget as HTMLElement).style.color = isWorktree
-                  ? 'rgba(34,211,238,0.8)'
-                  : 'rgba(255,255,255,0.6)'
+                (e.currentTarget as HTMLElement).style.color = isCodeReview
+                  ? 'rgba(167,139,250,0.8)'
+                  : isWorktree ? 'rgba(34,211,238,0.8)' : 'rgba(255,255,255,0.6)'
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
-                (e.currentTarget as HTMLElement).style.color = isWorktree
-                  ? 'rgba(34,211,238,0.5)'
-                  : 'rgba(255,255,255,0.35)'
+                (e.currentTarget as HTMLElement).style.color = isCodeReview
+                  ? 'rgba(167,139,250,0.5)'
+                  : isWorktree ? 'rgba(34,211,238,0.5)' : 'rgba(255,255,255,0.35)'
               }
             }}
           >
