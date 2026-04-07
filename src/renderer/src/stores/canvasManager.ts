@@ -29,6 +29,14 @@ export function getActiveCanvasId(): string {
  * Save the current canvas's nodes and camera into their slots.
  */
 function saveCurrentCanvas(): void {
+  // Only save if a canvas view is actually active — if the user is on a
+  // non-canvas view (code-review, settings), ns.nodes may be stale/empty
+  // and saving them would wipe the real canvas data.
+  const activeView = useViewStore.getState().instances.find(
+    (i) => i.id === useViewStore.getState().activeId
+  )
+  if (activeView && activeView.type !== 'canvas') return
+
   const ns = useNodeStore.getState()
   const canvasId = ns.activeWorkspaceId
   if (!canvasId) return

@@ -195,6 +195,16 @@ contextBridge.exposeInMainWorld('agent', {
   },
 })
 
+contextBridge.exposeInMainWorld('canvaflowMcp', {
+  onReviewComments: (cb: (reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => void): (() => void) => {
+    const listener = (_: unknown, reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => cb(reviewId, comments)
+    ipcRenderer.on('canvaflow-mcp:review-comments', listener)
+    return () => ipcRenderer.removeListener('canvaflow-mcp:review-comments', listener)
+  },
+  injectConfig: (targetDir: string): Promise<void> =>
+    ipcRenderer.invoke('canvaflow-mcp:inject-config', targetDir),
+})
+
 contextBridge.exposeInMainWorld('app', {
   onShortcut: (cb: (name: string) => void) => {
     const listener = (_: unknown, name: string) => cb(name)

@@ -1,0 +1,12 @@
+{
+  "name": "canvaflow-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for CanvaFlow — lets agents interact with the app (review comments, canvas control, etc.)",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0"
+  }
+}

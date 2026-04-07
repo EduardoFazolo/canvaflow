@@ -8,6 +8,7 @@ import { useAutoSave } from './hooks/useAutoSave'
 import { useWorkspaceInit } from './hooks/useWorkspaceInit'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useAgentStatus } from '../../modules/servers/agentic_signals/renderer/useAgentStatus'
+import { initReviewIpc } from './stores/reviewStore'
 import { useViewStore } from './stores/viewStore'
 import { setCanvasViewport } from './stores/canvasViewportStore'
 
@@ -15,6 +16,7 @@ export default function App(): React.ReactElement {
   useWorkspaceInit()
   useAutoSave()
   useAgentStatus()
+  useEffect(() => { initReviewIpc() }, [])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)

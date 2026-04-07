@@ -63,6 +63,11 @@ interface BrowserCaptureAndHideResult {
 
 declare global {
   interface Window {
+    canvaflowMcp: {
+      onReviewComments: (cb: (reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => void) => () => void
+      injectConfig: (targetDir: string) => Promise<void>
+    }
+
     terminal: {
       create: (id: string, workspaceId: string, cwd: string, shell: string) => Promise<void>
       write: (id: string, data: string) => void
