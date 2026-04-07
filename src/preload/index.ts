@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AgentSignal, AgentFileChange } from '../modules/servers/agentic_signals/shared/types'
+
+// Each terminal/agent node attaches its own listener to channels like
+// `terminal:data`, `agent:status`, `coordinator:status` etc., filtering by
+// node ID inside the listener. With many agents on a canvas this exceeds
+// Node's default warning threshold of 10 listeners per channel. Bump it to
+// a reasonable ceiling so the warning doesn't spam the console.
+ipcRenderer.setMaxListeners(100)
 import type {
   OrchestratorStartPayload,
   SubagentSpawnedEvent,
