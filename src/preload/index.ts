@@ -7,7 +7,16 @@ import type {
   NoteUpdateEvent,
 } from '../plugins/orchestrator/shared/types'
 
-interface NodeMetadataRow { nodeId: string; lastFocusedAt: number; focusCount: number; tags: string }
+interface NodeMetadataRow {
+  nodeId: string
+  lastFocusedAt: number
+  focusCount: number
+  totalFocusDuration?: number
+  tags: string
+  description?: string | null
+  pinned?: number
+  agentRole?: string | null
+}
 
 contextBridge.exposeInMainWorld('terminal', {
   create: (id: string, workspaceId: string, cwd: string, shell: string) =>

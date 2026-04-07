@@ -27,6 +27,8 @@ export interface NodeData {
   tags?: string[]
   description?: string
   pinned?: boolean
+  /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') — null/undefined for legacy or non-agents */
+  agentRole?: string | null
   // Agent status — ephemeral, reset on restart
   agentStatus?: AgentStatus
 }
@@ -238,6 +240,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     // Freshly created nodes activate immediately — no "Click to start" gate.
     // The staggered queue is only for bulk-loading from DB on startup.
     useActivationStore.getState().activateNow(id)
+    maybeAutoTagAsMain(id, get().activeWorkspaceId, type)
     return node
   },
 
@@ -269,6 +272,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       return { workspaceNodes }
     })
     useActivationStore.getState().activateNow(id)
+    maybeAutoTagAsMain(id, canvasId, type)
     return node
   },
 
@@ -309,3 +313,39 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     return Math.max(...Array.from(nodes.values()).map(n => n.zIndex))
   },
 }))
+
+// ---------------------------------------------------------------------------
+// Auto-tag the first agent on a canvas as the "main" agent.
+//
+// Runs on the next tick so that any explicit role assigned by spawnAgent
+// (e.g. role: 'reviewer') has already been applied — in which case this
+// no-ops because the node is already tagged.
+// ---------------------------------------------------------------------------
+function maybeAutoTagAsMain(nodeId: string, canvasId: string, type: NodeType): void {
+  if (type !== 'claude' && type !== 'orchestrator') return
+  setTimeout(() => {
+    const store = useNodeStore.getState()
+    const canvasNodes = store.workspaceNodes.get(canvasId)
+    if (!canvasNodes) return
+    const node = canvasNodes.get(nodeId)
+    if (!node || node.agentRole) return // gone, or already explicitly tagged
+
+    // Skip if any other agent on this canvas is already the main one.
+    // Subagents (children of an orchestrator) don't count.
+    const subagentIds = new Set<string>()
+    for (const n of canvasNodes.values()) {
+      if (n.type === 'orchestrator') {
+        const ids = (n.props.subagentIds as string[] | undefined) ?? []
+        for (const id of ids) subagentIds.add(id)
+      }
+    }
+    const hasMain = Array.from(canvasNodes.values()).some((n) =>
+      n.id !== nodeId && n.agentRole === 'main' && !subagentIds.has(n.id)
+    )
+    if (hasMain) return
+
+    // Tag this one as main, both in memory and persisted
+    store.update(nodeId, { agentRole: 'main' })
+    void window.agent.saveMetadata(nodeId, { agentRole: 'main' })
+  }, 0)
+}

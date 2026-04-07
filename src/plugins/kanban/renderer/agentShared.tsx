@@ -248,6 +248,17 @@ function findFreePosition(canvasId: string, nodeWidth: number, nodeHeight: numbe
   return { x: maxRight + padding, y: bestY }
 }
 
+/** Role tags for indexed agent lookup. Add new roles here as needed. */
+export type AgentRole = 'main' | 'reviewer'
+
+/** Persist a role tag to node_metadata + update the in-memory node. */
+function persistAgentRole(nodeId: string, role: AgentRole): void {
+  // Update the in-memory store immediately for fast lookup
+  useNodeStore.getState().update(nodeId, { agentRole: role })
+  // Persist to the database (fire-and-forget — failure is non-fatal)
+  void window.agent.saveMetadata(nodeId, { agentRole: role })
+}
+
 export function spawnAgent(opts: {
   agentId: AgentId
   viewKey: string
@@ -256,8 +267,10 @@ export function spawnAgent(opts: {
   prompt: string
   /** Skip the auto commit/push phases after the agent finishes (e.g. for review-only agents) */
   skipCommit?: boolean
+  /** Role tag — used to identify the agent's purpose later (e.g. find the main agent on a canvas) */
+  role?: AgentRole
 }): void {
-  const { agentId, viewKey, worktreePath, taskLabel, prompt, skipCommit } = opts
+  const { agentId, viewKey, worktreePath, taskLabel, prompt, skipCommit, role } = opts
   const viewStore = useViewStore.getState()
   const view = viewStore.instances.find((i) => i.id === viewKey)
 
@@ -269,6 +282,7 @@ export function spawnAgent(opts: {
     })
     window.coordinator.register(newNode.id, prompt, skipCommit ? { skipCommit: true } : undefined)
     if (view) viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
+    if (role) persistAgentRole(newNode.id, role)
   } else if (agentId === 'orchestrate') {
     const pos = findFreePosition(viewKey, 520, 500)
     const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', pos.x, pos.y, {
@@ -277,6 +291,7 @@ export function spawnAgent(opts: {
       subagentIds: [],
     })
     if (view) viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
+    if (role) persistAgentRole(newNode.id, role)
     window.orchestrator.start(newNode.id, {
       task: taskLabel,
       markdown: prompt,
@@ -285,4 +300,54 @@ export function spawnAgent(opts: {
       workspacePath: worktreePath,
     })
   }
+}
+
+// ---------------------------------------------------------------------------
+// Agent role queries — find indexed agents on a canvas
+// ---------------------------------------------------------------------------
+
+/** Get all claude/orchestrator nodes on a canvas (excludes orchestrator subagents). */
+function getAgentNodesOnCanvas(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
+  const nodeMap = useNodeStore.getState().workspaceNodes.get(canvasId)
+  if (!nodeMap) return []
+  // Collect all node IDs that are subagents of any orchestrator on this canvas
+  const subagentIds = new Set<string>()
+  for (const node of nodeMap.values()) {
+    if (node.type === 'orchestrator') {
+      const ids = (node.props.subagentIds as string[] | undefined) ?? []
+      for (const id of ids) subagentIds.add(id)
+    }
+  }
+  return Array.from(nodeMap.values()).filter((n) =>
+    (n.type === 'claude' || n.type === 'orchestrator') && !subagentIds.has(n.id)
+  )
+}
+
+/**
+ * Find the "main" task agent on a canvas. Uses the explicit role tag when
+ * available; falls back to "any agent that isn't tagged as a reviewer" so
+ * legacy data still works. Returns the most recently created match.
+ */
+export function findMainAgent(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData | null {
+  const agents = getAgentNodesOnCanvas(canvasId)
+
+  // Priority 1: explicit role: 'main'
+  const explicit = agents.filter((n) => n.agentRole === 'main')
+  if (explicit.length > 0) {
+    return explicit.reduce((latest, n) =>
+      (n.createdAt ?? 0) > (latest.createdAt ?? 0) ? n : latest
+    )
+  }
+
+  // Priority 2 (legacy fallback): any agent that isn't a reviewer
+  const nonReviewers = agents.filter((n) => n.agentRole !== 'reviewer')
+  if (nonReviewers.length === 0) return null
+  return nonReviewers.reduce((latest, n) =>
+    (n.createdAt ?? 0) > (latest.createdAt ?? 0) ? n : latest
+  )
+}
+
+/** Find all reviewer agents on a canvas. */
+export function findReviewerAgents(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
+  return getAgentNodesOnCanvas(canvasId).filter((n) => n.agentRole === 'reviewer')
 }

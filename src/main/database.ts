@@ -54,6 +54,8 @@ export interface NodeMetadataRow {
   tags: string // JSON array string
   description: string | null
   pinned: number // 0 | 1
+  /** Optional role tag for agent nodes (e.g. 'main', 'reviewer'). NULL for non-agents and legacy data. */
+  agentRole: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +156,9 @@ function migrate(): void {
   }
   if (!metaCols.some((c) => c.name === 'pinned')) {
     db.exec('ALTER TABLE node_metadata ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!metaCols.some((c) => c.name === 'agentRole')) {
+    db.exec('ALTER TABLE node_metadata ADD COLUMN agentRole TEXT')
   }
 
   const wsCols = db.prepare('PRAGMA table_info(workspaces)').all() as { name: string }[]
@@ -315,16 +320,18 @@ export function upsertNodeMetadata(nodeId: string, patch: Partial<Omit<NodeMetad
     tags: patch.tags ?? existing?.tags ?? '[]',
     description: patch.description ?? existing?.description ?? null,
     pinned: patch.pinned ?? existing?.pinned ?? 0,
+    agentRole: patch.agentRole !== undefined ? patch.agentRole : (existing?.agentRole ?? null),
   }
   db.prepare(`
-    INSERT INTO node_metadata (nodeId, lastFocusedAt, focusCount, totalFocusDuration, tags, description, pinned)
-    VALUES (@nodeId, @lastFocusedAt, @focusCount, @totalFocusDuration, @tags, @description, @pinned)
+    INSERT INTO node_metadata (nodeId, lastFocusedAt, focusCount, totalFocusDuration, tags, description, pinned, agentRole)
+    VALUES (@nodeId, @lastFocusedAt, @focusCount, @totalFocusDuration, @tags, @description, @pinned, @agentRole)
     ON CONFLICT(nodeId) DO UPDATE SET
       lastFocusedAt = excluded.lastFocusedAt,
       focusCount = excluded.focusCount,
       totalFocusDuration = excluded.totalFocusDuration,
       tags = excluded.tags,
       description = excluded.description,
-      pinned = excluded.pinned
+      pinned = excluded.pinned,
+      agentRole = excluded.agentRole
   `).run(row)
 }

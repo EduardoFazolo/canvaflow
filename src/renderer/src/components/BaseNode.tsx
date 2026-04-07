@@ -125,6 +125,14 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
   const selected = selectedNodeIds.has(node.id)
   const agentStatus = node.agentStatus
 
+  // Outline color based on agent role (when not focused/selected).
+  // Distinct from focus (purple) and selection (blue) states above.
+  const roleOutlineColor: string | null = (() => {
+    if (node.agentRole === 'main') return 'rgba(34,197,94,0.6)'    // green
+    if (node.agentRole === 'reviewer') return 'rgba(20,184,166,0.65)' // teal
+    return null
+  })()
+
   const contentRef = useRef<HTMLDivElement>(null)
 
   // Prevent canvas from hijacking wheel events when this node is focused.
@@ -250,6 +258,8 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
           ? '0 8px 32px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1.5px rgba(167,139,250,0.5)'
           : selected
           ? '0 8px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35), 0 0 0 1.5px rgba(96,165,250,0.55)'
+          : roleOutlineColor
+          ? `0 8px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35), 0 0 0 1.5px ${roleOutlineColor}`
           : '0 8px 32px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.35)',
         overflow: 'hidden',
         transition: 'box-shadow 0.15s',

@@ -200,6 +200,7 @@ export async function loadWorkspaceCanvas(workspaceId: string): Promise<void> {
                 tags: (() => { try { return JSON.parse(meta.tags) } catch { return [] } })(),
                 description: meta.description ?? undefined,
                 pinned: meta.pinned === 1,
+                agentRole: meta.agentRole ?? null,
               })
             }
           }
