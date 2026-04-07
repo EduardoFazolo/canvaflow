@@ -24,6 +24,8 @@ interface NodeMetadataRow {
   pinned: number // 0 | 1
   /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') */
   agentRole: string | null
+  /** Claude Code session ID — set when the agent reports it via the SessionStart hook */
+  agentSessionId: string | null
 }
 
 interface WorkspaceRow {

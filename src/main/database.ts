@@ -56,6 +56,8 @@ export interface NodeMetadataRow {
   pinned: number // 0 | 1
   /** Optional role tag for agent nodes (e.g. 'main', 'reviewer'). NULL for non-agents and legacy data. */
   agentRole: string | null
+  /** Optional Claude Code session ID — set when the agent reports it via the SessionStart hook. NULL for legacy data. */
+  agentSessionId: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +161,9 @@ function migrate(): void {
   }
   if (!metaCols.some((c) => c.name === 'agentRole')) {
     db.exec('ALTER TABLE node_metadata ADD COLUMN agentRole TEXT')
+  }
+  if (!metaCols.some((c) => c.name === 'agentSessionId')) {
+    db.exec('ALTER TABLE node_metadata ADD COLUMN agentSessionId TEXT')
   }
 
   const wsCols = db.prepare('PRAGMA table_info(workspaces)').all() as { name: string }[]
@@ -321,10 +326,11 @@ export function upsertNodeMetadata(nodeId: string, patch: Partial<Omit<NodeMetad
     description: patch.description ?? existing?.description ?? null,
     pinned: patch.pinned ?? existing?.pinned ?? 0,
     agentRole: patch.agentRole !== undefined ? patch.agentRole : (existing?.agentRole ?? null),
+    agentSessionId: patch.agentSessionId !== undefined ? patch.agentSessionId : (existing?.agentSessionId ?? null),
   }
   db.prepare(`
-    INSERT INTO node_metadata (nodeId, lastFocusedAt, focusCount, totalFocusDuration, tags, description, pinned, agentRole)
-    VALUES (@nodeId, @lastFocusedAt, @focusCount, @totalFocusDuration, @tags, @description, @pinned, @agentRole)
+    INSERT INTO node_metadata (nodeId, lastFocusedAt, focusCount, totalFocusDuration, tags, description, pinned, agentRole, agentSessionId)
+    VALUES (@nodeId, @lastFocusedAt, @focusCount, @totalFocusDuration, @tags, @description, @pinned, @agentRole, @agentSessionId)
     ON CONFLICT(nodeId) DO UPDATE SET
       lastFocusedAt = excluded.lastFocusedAt,
       focusCount = excluded.focusCount,
@@ -332,6 +338,7 @@ export function upsertNodeMetadata(nodeId: string, patch: Partial<Omit<NodeMetad
       tags = excluded.tags,
       description = excluded.description,
       pinned = excluded.pinned,
-      agentRole = excluded.agentRole
+      agentRole = excluded.agentRole,
+      agentSessionId = excluded.agentSessionId
   `).run(row)
 }

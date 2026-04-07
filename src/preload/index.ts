@@ -16,6 +16,7 @@ interface NodeMetadataRow {
   description?: string | null
   pinned?: number
   agentRole?: string | null
+  agentSessionId?: string | null
 }
 
 contextBridge.exposeInMainWorld('terminal', {

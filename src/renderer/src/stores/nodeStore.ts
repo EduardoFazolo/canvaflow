@@ -29,6 +29,8 @@ export interface NodeData {
   pinned?: boolean
   /** Optional role tag for agent nodes (e.g. 'main', 'reviewer') — null/undefined for legacy or non-agents */
   agentRole?: string | null
+  /** Claude Code session ID — populated by the SessionStart hook so the agent can be resumed across restarts */
+  agentSessionId?: string | null
   // Agent status — ephemeral, reset on restart
   agentStatus?: AgentStatus
 }

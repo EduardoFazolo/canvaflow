@@ -15,6 +15,7 @@ import { join } from 'path'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { CANVAFLOW_MCP_PORT } from '../shared/constants'
 import type { AddReviewCommentsPayload, BridgeResponse, ReviewComment } from '../shared/types'
+import { upsertNodeMetadata } from '../../../../main/database'
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -76,6 +77,39 @@ const routes: Record<string, Record<string, RouteHandler>> = {
       wc.send('canvaflow-mcp:review-comments', payload.reviewId, valid)
       json(res, 200, { ok: true, count: valid.length })
     },
+
+    /**
+     * Called by the SessionStart hook script every time a Claude session
+     * begins. Persists the mapping nodeId → sessionId so the agent can be
+     * resumed on app restart.
+     */
+    '/agent/session': async (req, res, wc) => {
+      const raw = await readBody(req)
+      let payload: { nodeId?: unknown; sessionId?: unknown }
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        return json(res, 400, { ok: false, error: 'Invalid JSON body' })
+      }
+
+      const nodeId = typeof payload.nodeId === 'string' ? payload.nodeId : ''
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      if (!nodeId || !sessionId) {
+        return json(res, 400, { ok: false, error: 'nodeId and sessionId are required' })
+      }
+
+      try {
+        upsertNodeMetadata(nodeId, { agentSessionId: sessionId })
+      } catch (e) {
+        console.error('[canvaflow-mcp] failed to persist agent session:', e)
+        return json(res, 500, { ok: false, error: 'Failed to persist session' })
+      }
+
+      // Notify the renderer in case anything is listening (no-op consumer for now,
+      // but useful for future "agent session updated" UI)
+      wc.send('canvaflow-mcp:agent-session', { nodeId, sessionId })
+      json(res, 200, { ok: true })
+    },
   },
 
   GET: {
@@ -90,11 +124,14 @@ const routes: Record<string, Record<string, RouteHandler>> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Ensure the CanvaFlow MCP is configured in a directory's .claude/settings.json.
- * Merges with any existing config (e.g. if Lovable MCP is already there).
+ * Ensure the CanvaFlow MCP server AND the SessionStart hook are configured
+ * in a directory's .claude/settings.json. Both pieces are merged with any
+ * existing config — we never overwrite keys we don't own (e.g. other MCPs
+ * the user may have configured).
  */
 function injectMcpConfig(targetDir: string): void {
   const mcpIndexPath = join(app.getAppPath(), 'mcps/canvaflow/index.ts')
+  const hookScriptPath = join(app.getAppPath(), 'mcps/canvaflow/hooks/session-start.sh')
   const claudeDir = join(targetDir, '.claude')
   const settingsPath = join(claudeDir, 'settings.json')
 
@@ -105,6 +142,7 @@ function injectMcpConfig(targetDir: string): void {
     try { cfg = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { /* start fresh */ }
   }
 
+  // --- mcpServers.canvaflow
   if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {}
   }
@@ -112,6 +150,35 @@ function injectMcpConfig(targetDir: string): void {
     command: 'bun',
     args: ['run', mcpIndexPath],
   }
+
+  // --- hooks.SessionStart — append our hook entry, preserve any existing ones
+  if (!cfg.hooks || typeof cfg.hooks !== 'object') {
+    cfg.hooks = {}
+  }
+  const hooks = cfg.hooks as Record<string, unknown>
+  const existingSessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart as unknown[] : []
+  // Filter out any previous canvaflow hook so we don't accumulate duplicates
+  // when injectMcpConfig is called multiple times for the same dir.
+  const filtered = existingSessionStart.filter((entry) => {
+    if (!entry || typeof entry !== 'object') return true
+    const e = entry as Record<string, unknown>
+    const innerHooks = Array.isArray(e.hooks) ? e.hooks as unknown[] : []
+    return !innerHooks.some((h) => {
+      if (!h || typeof h !== 'object') return false
+      const cmd = (h as Record<string, unknown>).command
+      return typeof cmd === 'string' && cmd.includes('mcps/canvaflow/hooks/session-start.sh')
+    })
+  })
+  hooks.SessionStart = [
+    ...filtered,
+    {
+      matcher: '*',
+      hooks: [{
+        type: 'command',
+        command: `bash ${JSON.stringify(hookScriptPath).slice(1, -1)}`,
+      }],
+    },
+  ]
 
   writeFileSync(settingsPath, JSON.stringify(cfg, null, 2))
 }
