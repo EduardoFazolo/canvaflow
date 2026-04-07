@@ -86,6 +86,8 @@ interface TrackedAgent {
   taskSent: boolean
   firedPatterns: Set<string>
   writeFn: ((data: string) => void) | null
+  /** When true, skip the commit/push phases after the agent finishes (e.g. for review-only agents) */
+  skipCommit: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +101,7 @@ let _getWebContents: (() => WebContents | null) | null = null
  * Register an agent to be coordinated. Call this BEFORE the PTY is created
  * so the data hook is ready when the first byte arrives.
  */
-function registerAgent(nodeId: string, task: string): void {
+function registerAgent(nodeId: string, task: string, opts?: { skipCommit?: boolean }): void {
   // Remove any stale registration
   agents.delete(nodeId)
   agents.set(nodeId, {
@@ -110,6 +112,7 @@ function registerAgent(nodeId: string, task: string): void {
     taskSent: false,
     firedPatterns: new Set(),
     writeFn: null,
+    skipCommit: opts?.skipCommit ?? false,
   })
 }
 
@@ -199,6 +202,12 @@ export function coordinatorOnData(nodeId: string, data: string, writeFn: (data: 
     // Detect when agent finishes: the ❯ prompt reappears
     for (const readyRe of READY_PATTERNS) {
       if (readyRe.test(clean)) {
+        if (agent.skipCommit) {
+          agent.phase = 'done'
+          agent.buffer = ''
+          emitCoordinatorStatus(nodeId, 'done', 'Review complete')
+          return
+        }
         agent.phase = 'committing'
         agent.buffer = ''
         emitCoordinatorStatus(nodeId, 'committing', 'Agent done, committing changes')
@@ -264,8 +273,8 @@ function emitCoordinatorStatus(nodeId: string, phase: string, message: string): 
 export function setupCoordinatorHandlers(getWebContents: () => WebContents | null): void {
   _getWebContents = getWebContents
 
-  ipcMain.handle('coordinator:register', (_e, nodeId: string, task: string) => {
-    registerAgent(nodeId, task)
+  ipcMain.handle('coordinator:register', (_e, nodeId: string, task: string, opts?: { skipCommit?: boolean }) => {
+    registerAgent(nodeId, task, opts)
   })
 
   ipcMain.handle('coordinator:unregister', (_e, nodeId: string) => {

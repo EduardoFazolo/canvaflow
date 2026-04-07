@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom'
 import { titleToBranchName } from '../../../renderer/src/utils/branch'
 import { getActiveWorkspace } from '../../../renderer/src/stores/workspaceStore'
 import type { KanbanCard } from '../store'
+import { AgentPickerButtons, type AgentId } from './agentShared'
 
 export interface WorktreeConfig {
-  agentId: 'orchestrate' | 'claude'
+  agentId: AgentId
   branchName: string
   branchFromMain: boolean
 }
@@ -15,32 +16,6 @@ interface Props {
   onConfirm: (config: WorktreeConfig) => Promise<void>
   onClose: () => void
 }
-
-const AGENTS = [
-  {
-    id: 'orchestrate' as const,
-    label: 'Orchestrate',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="3" fill="currentColor"/>
-        <circle cx="3" cy="5" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="17" cy="5" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="3" cy="15" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="17" cy="15" r="2" fill="currentColor" opacity="0.6"/>
-        <path d="M5 5.5L8 8.5M15 5.5L12 8.5M5 14.5L8 11.5M15 14.5L12 11.5" stroke="currentColor" strokeWidth="1.2" opacity="0.5"/>
-      </svg>
-    ),
-  },
-  {
-    id: 'claude' as const,
-    label: 'Claude',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2l2.5 5.5L18 10l-5.5 2.5L10 18l-2.5-5.5L2 10l5.5-2.5L10 2z" fill="currentColor"/>
-      </svg>
-    ),
-  },
-]
 
 export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.ReactElement {
   const [branchName, setBranchName] = useState(titleToBranchName(card.title))
@@ -59,7 +34,7 @@ export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.R
     }).catch(() => setIsRepo(false))
   }, [workspace?.path])
 
-  const handleStart = useCallback(async (agentId: 'orchestrate' | 'claude') => {
+  const handleStart = useCallback(async (agentId: AgentId) => {
     if (!branchName.trim()) return
     setLoading(true)
     setError('')
@@ -203,57 +178,7 @@ export function WorktreeStartModal({ card, onConfirm, onClose }: Props): React.R
         )}
 
         {/* Agent picker */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{
-            fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8,
-          }}>
-            Start session with
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {AGENTS.map((agent) => {
-              const isOrchestrate = agent.id === 'orchestrate'
-              const borderColor = isOrchestrate ? 'rgba(52,211,153,0.25)' : 'rgba(34,211,238,0.25)'
-              const bgColor = isOrchestrate ? 'rgba(52,211,153,0.07)' : 'rgba(34,211,238,0.08)'
-              const borderHover = isOrchestrate ? 'rgba(52,211,153,0.45)' : 'rgba(34,211,238,0.45)'
-              const bgHover = isOrchestrate ? 'rgba(52,211,153,0.14)' : 'rgba(34,211,238,0.15)'
-              const iconColor = isOrchestrate ? 'rgba(52,211,153,0.9)' : 'rgba(34,211,238,0.9)'
-              const iconBg = isOrchestrate ? 'rgba(52,211,153,0.15)' : 'rgba(34,211,238,0.15)'
-              const disabled = loading || !isRepo
-
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => handleStart(agent.id)}
-                  disabled={disabled}
-                  style={{
-                    width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 8,
-                    border: `1px solid ${borderColor}`, background: bgColor,
-                    color: disabled ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.88)',
-                    fontSize: 13, fontWeight: 500, cursor: disabled ? 'default' : 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 9, fontFamily: 'inherit',
-                    transition: 'background 0.1s, border-color 0.1s',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!disabled) Object.assign((e.currentTarget as HTMLElement).style, { background: bgHover, borderColor: borderHover })
-                  }}
-                  onMouseLeave={(e) => {
-                    Object.assign((e.currentTarget as HTMLElement).style, { background: bgColor, borderColor })
-                  }}
-                >
-                  <span style={{
-                    width: 22, height: 22, borderRadius: 6, background: iconBg,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    color: iconColor, flexShrink: 0,
-                  }}>
-                    {agent.icon}
-                  </span>
-                  {loading ? 'Starting...' : agent.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <AgentPickerButtons label="Start session with" loading={loading} disabled={!isRepo} onPick={handleStart} />
 
         {/* Cancel */}
         <button

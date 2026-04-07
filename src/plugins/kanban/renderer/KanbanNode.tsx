@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { nanoid } from 'nanoid'
 import { BaseNode } from '../../../renderer/src/components/BaseNode'
 import { ColorPicker } from '../../../renderer/src/components/ui/color-picker'
@@ -12,6 +11,7 @@ import { WorktreeStartModal, type WorktreeConfig } from './WorktreeStartModal'
 import { CardDetailModal } from './CardDetailModal'
 import { switchCanvas } from '../../../renderer/src/stores/canvasManager'
 import { buildTaskPrompt } from '../contentExtractor'
+import { AgentActionModal, resolveCardWorktree, spawnAgent, type AgentId } from './agentShared'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,17 +50,21 @@ const BADGE_COLORS: Record<string, string> = {
 function CardItem({
   card,
   columnId,
+  columnTitle,
   onDelete,
   onUpdate,
   onExternalDrop,
   onResolveConflicts,
+  onRequestReview,
 }: {
   card: KanbanCard
   columnId: string
+  columnTitle: string
   onDelete: (colId: string, cardId: string) => void
   onUpdate: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
   onResolveConflicts: (card: KanbanCard, branchName: string, conflictingFiles: string[]) => void
+  onRequestReview: (card: KanbanCard, branchName: string) => void
 }): React.ReactElement {
   const [modalOpen, setModalOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -128,7 +132,7 @@ function CardItem({
         onMouseLeave={() => setHovered(false)}
         onClick={() => {
           if (worktreeView) {
-            useViewStore.getState().activate(worktreeView.id)
+            switchCanvas(worktreeView.id)
           }
         }}
         onDoubleClick={(e) => {
@@ -263,6 +267,44 @@ function CardItem({
           </div>
         )}
 
+        {/* Code review button — shown for cards in REVIEW column with a branch */}
+        {columnTitle.toUpperCase() === 'REVIEW' && branchName && !conflictingFiles && (
+          <div style={{ marginTop: 6 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRequestReview(card, branchName)
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                width: '100%', textAlign: 'center', padding: '4px 8px', borderRadius: 4,
+                border: '1px solid rgba(167,139,250,0.25)', background: 'rgba(167,139,250,0.08)',
+                color: 'rgba(167,139,250,0.85)', fontSize: 10, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                transition: 'background 0.1s, border-color 0.1s',
+              }}
+              onMouseEnter={(e) => {
+                Object.assign((e.currentTarget as HTMLElement).style, {
+                  background: 'rgba(167,139,250,0.15)', borderColor: 'rgba(167,139,250,0.4)',
+                })
+              }}
+              onMouseLeave={(e) => {
+                Object.assign((e.currentTarget as HTMLElement).style, {
+                  background: 'rgba(167,139,250,0.08)', borderColor: 'rgba(167,139,250,0.25)',
+                })
+              }}
+              title="Spawn an agent to review code changes on this branch"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6.5" cy="6.5" r="5" />
+                <line x1="10" y1="10" x2="14.5" y2="14.5" />
+              </svg>
+              Review Code
+            </button>
+          </div>
+        )}
+
         {hovered && !worktreeView && !closedView && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(columnId, card.id) }}
@@ -393,206 +435,6 @@ function ColumnHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Conflict Resolve Modal
-// ---------------------------------------------------------------------------
-
-const CONFLICT_AGENTS = [
-  {
-    id: 'orchestrate' as const,
-    label: 'Orchestrate',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="3" fill="currentColor"/>
-        <circle cx="3" cy="5" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="17" cy="5" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="3" cy="15" r="2" fill="currentColor" opacity="0.6"/>
-        <circle cx="17" cy="15" r="2" fill="currentColor" opacity="0.6"/>
-        <path d="M5 5.5L8 8.5M15 5.5L12 8.5M5 14.5L8 11.5M15 14.5L12 11.5" stroke="currentColor" strokeWidth="1.2" opacity="0.5"/>
-      </svg>
-    ),
-  },
-  {
-    id: 'claude' as const,
-    label: 'Claude',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2l2.5 5.5L18 10l-5.5 2.5L10 18l-2.5-5.5L2 10l5.5-2.5L10 2z" fill="currentColor"/>
-      </svg>
-    ),
-  },
-]
-
-function ConflictResolveModal({
-  card,
-  branchName,
-  conflictingFiles,
-  onConfirm,
-  onClose,
-}: {
-  card: KanbanCard
-  branchName: string
-  conflictingFiles: string[]
-  onConfirm: (agentId: 'orchestrate' | 'claude') => Promise<void>
-  onClose: () => void
-}): React.ReactElement {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const handleStart = useCallback(async (agentId: 'orchestrate' | 'claude') => {
-    setLoading(true)
-    setError('')
-    try {
-      await onConfirm(agentId)
-    } catch (e: any) {
-      setError(e?.message ?? String(e))
-      setLoading(false)
-    }
-  }, [onConfirm])
-
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000000,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-      }}
-      onPointerDown={onClose}
-    >
-      <div
-        style={{
-          background: '#161616', border: '1px solid rgba(239,68,68,0.2)',
-          borderRadius: 12, padding: 20, width: 380,
-          boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <div style={{ marginBottom: 16 }}>
-          <div style={{
-            fontSize: 10, color: 'rgba(239,68,68,0.6)', fontWeight: 600,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 5,
-            display: 'flex', alignItems: 'center', gap: 5,
-          }}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 1L15 14H1L8 1z" />
-              <line x1="8" y1="6" x2="8" y2="9" />
-              <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
-            </svg>
-            Resolve Merge Conflicts
-          </div>
-          <div style={{
-            fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4,
-            overflow: 'hidden', textOverflow: 'ellipsis',
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any,
-          }}>
-            {card.title}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4, fontFamily: 'monospace' }}>
-            {branchName} → main
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <div style={{
-            fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
-          }}>
-            Conflicting files ({conflictingFiles.length})
-          </div>
-          <div style={{
-            background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)',
-            borderRadius: 6, padding: '8px 10px', maxHeight: 120, overflowY: 'auto',
-          }}>
-            {conflictingFiles.map((file) => (
-              <div key={file} style={{
-                fontSize: 11, color: 'rgba(239,68,68,0.75)', fontFamily: 'monospace',
-                lineHeight: 1.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {file}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {error && (
-          <div style={{
-            marginBottom: 12, padding: '8px 10px', borderRadius: 6,
-            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
-            color: 'rgba(239,68,68,0.8)', fontSize: 11, wordBreak: 'break-word',
-          }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={{
-            fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8,
-          }}>
-            Resolve with
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {CONFLICT_AGENTS.map((agent) => {
-              const isOrch = agent.id === 'orchestrate'
-              const borderColor = isOrch ? 'rgba(52,211,153,0.25)' : 'rgba(34,211,238,0.25)'
-              const bgColor = isOrch ? 'rgba(52,211,153,0.07)' : 'rgba(34,211,238,0.08)'
-              const borderHover = isOrch ? 'rgba(52,211,153,0.45)' : 'rgba(34,211,238,0.45)'
-              const bgHover = isOrch ? 'rgba(52,211,153,0.14)' : 'rgba(34,211,238,0.15)'
-              const iconColor = isOrch ? 'rgba(52,211,153,0.9)' : 'rgba(34,211,238,0.9)'
-              const iconBg = isOrch ? 'rgba(52,211,153,0.15)' : 'rgba(34,211,238,0.15)'
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => handleStart(agent.id)}
-                  disabled={loading}
-                  style={{
-                    width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 8,
-                    border: `1px solid ${borderColor}`, background: bgColor,
-                    color: loading ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.88)',
-                    fontSize: 13, fontWeight: 500, cursor: loading ? 'default' : 'pointer',
-                    display: 'flex', alignItems: 'center', gap: 9, fontFamily: 'inherit',
-                    transition: 'background 0.1s, border-color 0.1s',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading) Object.assign((e.currentTarget as HTMLElement).style, { background: bgHover, borderColor: borderHover })
-                  }}
-                  onMouseLeave={(e) => {
-                    Object.assign((e.currentTarget as HTMLElement).style, { background: bgColor, borderColor })
-                  }}
-                >
-                  <span style={{
-                    width: 22, height: 22, borderRadius: 6, background: iconBg,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    color: iconColor, flexShrink: 0,
-                  }}>
-                    {agent.icon}
-                  </span>
-                  {loading ? 'Starting...' : agent.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <button
-          onClick={onClose}
-          style={{
-            width: '100%', textAlign: 'center', padding: '8px 12px', borderRadius: 8,
-            border: '1px solid rgba(255,255,255,0.07)', background: 'transparent',
-            color: 'rgba(255,255,255,0.28)', fontSize: 12, fontWeight: 500,
-            cursor: 'pointer', fontFamily: 'inherit',
-          }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.28)' }}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main KanbanNode
 // ---------------------------------------------------------------------------
 
@@ -609,6 +451,10 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     card: KanbanCard
     branchName: string
     conflictingFiles: string[]
+  } | null>(null)
+  const [codeReview, setCodeReview] = useState<{
+    card: KanbanCard
+    branchName: string
   } | null>(null)
 
   // Load kanban data for this workspace on mount
@@ -740,6 +586,10 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
     setConflictResolve({ card, branchName, conflictingFiles })
   }, [])
 
+  const onRequestReview = useCallback((card: KanbanCard, branchName: string) => {
+    setCodeReview({ card, branchName })
+  }, [])
+
   // ----- External drop (card dragged onto canvas) -----
 
   const onExternalDrop = useCallback((card: KanbanCard, clientX: number, clientY: number) => {
@@ -802,7 +652,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
           const existingView = useViewStore.getState().getViewByCardId(card.id)
           if (existingView) {
             // Just switch to it and move the card normally
-            useViewStore.getState().activate(existingView.id)
+            switchCanvas(existingView.id)
             moveCard(srcColId, targetColId, cardId, insertIndex)
           } else {
             setWorktreeDrop({ card, sourceColId: srcColId, targetColId })
@@ -836,29 +686,19 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
         <KanbanDropModal payload={pendingDrop} onClose={() => setPendingDrop(null)} />
       )}
       {conflictResolve && (
-        <ConflictResolveModal
-          card={conflictResolve.card}
-          branchName={conflictResolve.branchName}
-          conflictingFiles={conflictResolve.conflictingFiles}
-          onConfirm={async (agentId: 'orchestrate' | 'claude') => {
-            const workspace = getActiveWorkspace()
-            const cwd = workspace?.path
-            if (!cwd) throw new Error('No active workspace')
-
-            const viewStore = useViewStore.getState()
-            let view = viewStore.instances.find((i) => i.sourceCardId === conflictResolve.card.id)
-            if (!view) {
-              const closed = viewStore.closedViews.find((i) => i.sourceCardId === conflictResolve.card.id)
-              if (closed) {
-                viewStore.reopenClosedView(closed.id)
-                view = viewStore.instances.find((i) => i.id === closed.id)
-              }
-            }
-            if (!view?.worktreePath) throw new Error('No worktree found for this card')
-
-            const viewKey = view.id
-            const worktreePath = view.worktreePath
-            switchCanvas(viewKey)
+        <AgentActionModal
+          accentColor="rgba(239,68,68,0.2)"
+          headerIcon={
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 1L15 14H1L8 1z" />
+              <line x1="8" y1="6" x2="8" y2="9" />
+              <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+            </svg>
+          }
+          headerLabel="Resolve Merge Conflicts"
+          pickerLabel="Resolve with"
+          onConfirm={async (agentId: AgentId) => {
+            const { viewKey, worktreePath } = resolveCardWorktree(conflictResolve.card.id)
             setConflictResolve(null)
 
             const fileList = conflictResolve.conflictingFiles.map(f => `  - ${f}`).join('\n')
@@ -879,31 +719,42 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               'Important: Make sure both this branch\'s changes AND main\'s changes are properly preserved and work together.',
             ].join('\n')
 
-            if (agentId === 'claude') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
-                cwd: worktreePath,
-                claudeFlags: '--dangerously-skip-permissions',
-              })
-              window.coordinator.register(newNode.id, prompt)
-              viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
-            } else if (agentId === 'orchestrate') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
-                task: `Resolve merge conflicts: ${conflictResolve.card.title}`,
-                status: 'idle',
-                subagentIds: [],
-              })
-              viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
-              window.orchestrator.start(newNode.id, {
-                task: `Resolve merge conflicts: ${conflictResolve.card.title}`,
-                markdown: prompt,
-                worldX: 100,
-                worldY: 100,
-                workspacePath: worktreePath,
-              })
-            }
+            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Resolve merge conflicts: ${conflictResolve.card.title}`, prompt })
           }}
           onClose={() => setConflictResolve(null)}
-        />
+        >
+          <div style={{
+            fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4,
+            overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any,
+          }}>
+            {conflictResolve.card.title}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 16, fontFamily: 'monospace' }}>
+            {conflictResolve.branchName} → main
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{
+              fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
+            }}>
+              Conflicting files ({conflictResolve.conflictingFiles.length})
+            </div>
+            <div style={{
+              background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)',
+              borderRadius: 6, padding: '8px 10px', maxHeight: 120, overflowY: 'auto',
+            }}>
+              {conflictResolve.conflictingFiles.map((file) => (
+                <div key={file} style={{
+                  fontSize: 11, color: 'rgba(239,68,68,0.75)', fontFamily: 'monospace',
+                  lineHeight: 1.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {file}
+                </div>
+              ))}
+            </div>
+          </div>
+        </AgentActionModal>
       )}
       {worktreeDrop && (
         <WorktreeStartModal
@@ -942,7 +793,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             })
             const viewKey = viewId
 
-            // 3. Switch to the worktree canvas
+            // 3. Switch to the worktree canvas (also activates the tab)
             switchCanvas(viewKey)
 
             // 4. Move card to "In Progress" (operates on kanban store, unaffected by node store)
@@ -955,33 +806,85 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const extracted = buildTaskPrompt(worktreeDrop.card)
             const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
-            // 7. Create the agent node EXPLICITLY in the worktree canvas
-            if (config.agentId === 'claude') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'claude', 100, 100, {
-                cwd: worktreePath,
-                claudeFlags: '--dangerously-skip-permissions',
-              })
-
-              window.coordinator.register(newNode.id, prompt)
-              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
-            } else if (config.agentId === 'orchestrate') {
-              const newNode = useNodeStore.getState().addToCanvas(viewKey, 'orchestrator', 100, 100, {
-                task: worktreeDrop.card.title,
-                status: 'idle',
-                subagentIds: [],
-              })
-              useViewStore.getState().updateAgentStatus(viewId, 'idle', newNode.id)
-              window.orchestrator.start(newNode.id, {
-                task: worktreeDrop.card.title,
-                markdown: prompt,
-                worldX: 100,
-                worldY: 100,
-                workspacePath: worktreePath,
-              })
-            }
+            // 7. Create the agent node in the worktree canvas
+            spawnAgent({ agentId: config.agentId, viewKey, worktreePath, taskLabel: worktreeDrop.card.title, prompt })
           }}
           onClose={() => setWorktreeDrop(null)}
         />
+      )}
+      {codeReview && (
+        <AgentActionModal
+          accentColor="rgba(167,139,250,0.2)"
+          headerIcon={
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6.5" cy="6.5" r="5" />
+              <line x1="10" y1="10" x2="14.5" y2="14.5" />
+            </svg>
+          }
+          headerLabel="Code Review"
+          pickerLabel="Review with"
+          onConfirm={async (agentId: AgentId) => {
+            const { viewKey, worktreePath } = resolveCardWorktree(codeReview.card.id)
+            setCodeReview(null)
+
+            const prompt = [
+              `You are a code reviewer. Your ONLY job is to review the code changes on this branch (${codeReview.branchName}).`,
+              '',
+              'IMPORTANT CONSTRAINTS:',
+              '- You must ONLY review code — do NOT modify, fix, or change any files.',
+              '- Focus EXCLUSIVELY on the diff between this branch and main.',
+              '- Do NOT look at or comment on code that was not changed in this branch.',
+              '',
+              'Steps:',
+              '1. Run: git diff main...HEAD',
+              '   This shows you ONLY the changes introduced by this branch.',
+              '2. If the diff is large, also run: git diff main...HEAD --stat',
+              '   to get an overview of which files were changed.',
+              '3. Carefully analyze every change in the diff.',
+              '',
+              'Review the changes for:',
+              '- **Bugs**: Logic errors, off-by-one errors, null/undefined issues, race conditions, missing error handling',
+              '- **Code smells**: Overly complex functions, deep nesting, magic numbers, duplicated logic, god objects',
+              '- **Sloppiness**: Unused imports/variables, leftover debug code (console.log, TODO hacks), inconsistent naming',
+              '- **Security**: Injection vulnerabilities, exposed secrets, unsafe deserialization, missing input validation',
+              '- **Performance**: Unnecessary re-renders, N+1 queries, missing memoization where it matters, unbounded loops',
+              '- **Readability**: Unclear variable/function names, missing context for non-obvious logic, overly clever code',
+              '',
+              'For each issue found, report:',
+              '- The file and approximate location',
+              '- What the problem is',
+              '- Severity (critical / warning / nit)',
+              '- A brief suggestion for how to fix it',
+              '',
+              'If the code looks clean, say so — do not invent issues.',
+              'End with a short summary: how many issues by severity, and an overall assessment.',
+            ].join('\n')
+
+            spawnAgent({ agentId, viewKey, worktreePath, taskLabel: `Code review: ${codeReview.card.title}`, prompt, skipCommit: true })
+          }}
+          onClose={() => setCodeReview(null)}
+        >
+          <div style={{
+            fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4,
+            overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any,
+          }}>
+            {codeReview.card.title}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 16, fontFamily: 'monospace' }}>
+            {codeReview.branchName}
+          </div>
+          <div style={{
+            marginBottom: 16, padding: '10px 12px',
+            background: 'rgba(167,139,250,0.04)', borderRadius: 8,
+            border: '1px solid rgba(167,139,250,0.1)',
+          }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+              The reviewer will analyze <strong style={{ color: 'rgba(167,139,250,0.8)' }}>only the diff</strong> between
+              this branch and main, looking for bugs, code smells, sloppiness, and general code quality issues.
+            </div>
+          </div>
+        </AgentActionModal>
       )}
       <div
         style={{
@@ -1051,6 +954,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
               onUpdateCard={updateCard}
               onExternalDrop={onExternalDrop}
               onResolveConflicts={onResolveConflicts}
+              onRequestReview={onRequestReview}
               onRename={renameColumn}
               onColorChange={changeColumnColor}
               onDelete={removeColumn}
@@ -1193,6 +1097,7 @@ function Column({
   onUpdateCard,
   onExternalDrop,
   onResolveConflicts,
+  onRequestReview,
   onRename,
   onColorChange,
   onDelete,
@@ -1205,6 +1110,7 @@ function Column({
   onUpdateCard: (colId: string, cardId: string, patch: Partial<KanbanCard>) => void
   onExternalDrop: (card: KanbanCard, clientX: number, clientY: number) => void
   onResolveConflicts: (card: KanbanCard, branchName: string, conflictingFiles: string[]) => void
+  onRequestReview: (card: KanbanCard, branchName: string) => void
   onRename: (colId: string, title: string) => void
   onColorChange: (colId: string, color: string) => void
   onDelete: (colId: string) => void
@@ -1294,10 +1200,12 @@ function Column({
             <CardItem
               card={card}
               columnId={column.id}
+              columnTitle={column.title}
               onDelete={onDeleteCard}
               onUpdate={onUpdateCard}
               onExternalDrop={onExternalDrop}
               onResolveConflicts={onResolveConflicts}
+              onRequestReview={onRequestReview}
             />
           </div>
         ))}
