@@ -227,10 +227,15 @@ contextBridge.exposeInMainWorld('agent', {
 })
 
 contextBridge.exposeInMainWorld('canvaflowMcp', {
-  onReviewComments: (cb: (reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => void): (() => void) => {
-    const listener = (_: unknown, reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => cb(reviewId, comments)
+  onReviewComments: (cb: (reviewId: string, threads: unknown[]) => void): (() => void) => {
+    const listener = (_: unknown, reviewId: string, threads: unknown[]) => cb(reviewId, threads)
     ipcRenderer.on('canvaflow-mcp:review-comments', listener)
     return () => ipcRenderer.removeListener('canvaflow-mcp:review-comments', listener)
+  },
+  onReviewReply: (cb: (threadId: string, message: unknown) => void): (() => void) => {
+    const listener = (_: unknown, threadId: string, message: unknown) => cb(threadId, message)
+    ipcRenderer.on('canvaflow-mcp:review-reply', listener)
+    return () => ipcRenderer.removeListener('canvaflow-mcp:review-reply', listener)
   },
   injectConfig: (targetDir: string): Promise<void> =>
     ipcRenderer.invoke('canvaflow-mcp:inject-config', targetDir),

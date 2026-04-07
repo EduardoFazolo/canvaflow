@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import type { ParsedFileDiff } from './types'
-import type { ReviewComment } from '../../../../modules/servers/canvaflow_mcp/shared/types'
+import type { ReviewThread } from '../../../../modules/servers/canvaflow_mcp/shared/types'
+import type { NodeData } from '../../stores/nodeStore'
 import { DiffLineRow } from './DiffLineRow'
-import { CommentCard } from './CommentCard'
+import { ThreadCard } from './ThreadCard'
 import { langForFile } from './shikiHighlighter'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -19,14 +20,20 @@ export function FileDiffView({
   worktreePath,
   baseRef,
   headRef,
-  comments,
+  threads,
+  reviewId,
+  branchName,
+  agents,
 }: {
   file: string
   status: string
   worktreePath: string
   baseRef: string
   headRef: string
-  comments: ReviewComment[]
+  threads: ReviewThread[]
+  reviewId: string
+  branchName: string
+  agents: NodeData[]
 }): React.ReactElement {
   const [diff, setDiff] = useState<ParsedFileDiff | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,12 +55,12 @@ export function FileDiffView({
 
   const language = langForFile(file)
 
-  // Group comments by line for fast lookup
-  const commentsByLine = new Map<number, ReviewComment[]>()
-  for (const c of comments) {
-    const list = commentsByLine.get(c.line) ?? []
-    list.push(c)
-    commentsByLine.set(c.line, list)
+  // Group threads by anchor line for fast lookup
+  const threadsByLine = new Map<number, ReviewThread[]>()
+  for (const t of threads) {
+    const list = threadsByLine.get(t.line) ?? []
+    list.push(t)
+    threadsByLine.set(t.line, list)
   }
 
   return (
@@ -120,14 +127,14 @@ export function FileDiffView({
               </div>
               {/* Hunk lines + inline comment threads */}
               {hunk.lines.map((line, li) => {
-                // Comments are tied to the modified file's line numbers
-                const lineComments = line.newLine != null
-                  ? commentsByLine.get(line.newLine) ?? []
+                // Threads are anchored to modified-file line numbers
+                const lineThreads = line.newLine != null
+                  ? threadsByLine.get(line.newLine) ?? []
                   : []
                 return (
                   <React.Fragment key={li}>
                     <DiffLineRow line={line} language={language} />
-                    {lineComments.length > 0 && (
+                    {lineThreads.length > 0 && (
                       <div style={{
                         padding: '6px 16px 6px 124px',
                         background: '#0d0d0d',
@@ -135,8 +142,14 @@ export function FileDiffView({
                         flexDirection: 'column',
                         gap: 8,
                       }}>
-                        {lineComments.map((c, ci) => (
-                          <CommentCard key={ci} comment={c} />
+                        {lineThreads.map((t) => (
+                          <ThreadCard
+                            key={t.id}
+                            thread={t}
+                            reviewId={reviewId}
+                            branchName={branchName}
+                            agents={agents}
+                          />
                         ))}
                       </div>
                     )}
