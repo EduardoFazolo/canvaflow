@@ -70,6 +70,94 @@ async function symlinkGitignoredFiles(
   } catch { /* non-fatal — worktree still usable, just missing some files */ }
 }
 
+// ---------------------------------------------------------------------------
+// Unified diff parser
+// ---------------------------------------------------------------------------
+
+export type DiffLineKind = 'add' | 'del' | 'ctx'
+
+export interface DiffLine {
+  kind: DiffLineKind
+  /** Line number in the original file (null for added lines) */
+  oldLine: number | null
+  /** Line number in the modified file (null for deleted lines) */
+  newLine: number | null
+  /** The line content WITHOUT the leading +/-/space marker */
+  content: string
+}
+
+export interface DiffHunk {
+  /** Header text from the @@ line (e.g. "@@ -10,5 +10,8 @@ function foo()") */
+  header: string
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+  lines: DiffLine[]
+}
+
+export interface ParsedFileDiff {
+  hunks: DiffHunk[]
+}
+
+const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/
+
+/** Parse a unified diff (git diff output) into structured hunks. */
+export function parseUnifiedDiff(raw: string): ParsedFileDiff {
+  const hunks: DiffHunk[] = []
+  if (!raw) return { hunks }
+
+  const lines = raw.split('\n')
+  let current: DiffHunk | null = null
+  let oldCursor = 0
+  let newCursor = 0
+
+  for (const line of lines) {
+    // Skip diff headers (--- a/foo, +++ b/foo, diff --git, index ..., etc.)
+    if (line.startsWith('diff ') || line.startsWith('index ') ||
+        line.startsWith('--- ') || line.startsWith('+++ ') ||
+        line.startsWith('new file ') || line.startsWith('deleted file ') ||
+        line.startsWith('similarity ') || line.startsWith('rename ')) {
+      continue
+    }
+
+    const hunkMatch = HUNK_RE.exec(line)
+    if (hunkMatch) {
+      current = {
+        header: hunkMatch[5].trim(),
+        oldStart: parseInt(hunkMatch[1], 10),
+        oldCount: parseInt(hunkMatch[2] ?? '1', 10),
+        newStart: parseInt(hunkMatch[3], 10),
+        newCount: parseInt(hunkMatch[4] ?? '1', 10),
+        lines: [],
+      }
+      hunks.push(current)
+      oldCursor = current.oldStart
+      newCursor = current.newStart
+      continue
+    }
+
+    if (!current) continue
+
+    // \ No newline at end of file — informational, ignore
+    if (line.startsWith('\\')) continue
+
+    if (line.startsWith('+')) {
+      current.lines.push({ kind: 'add', oldLine: null, newLine: newCursor, content: line.slice(1) })
+      newCursor++
+    } else if (line.startsWith('-')) {
+      current.lines.push({ kind: 'del', oldLine: oldCursor, newLine: null, content: line.slice(1) })
+      oldCursor++
+    } else if (line.startsWith(' ') || line === '') {
+      current.lines.push({ kind: 'ctx', oldLine: oldCursor, newLine: newCursor, content: line.slice(1) })
+      oldCursor++
+      newCursor++
+    }
+  }
+
+  return { hunks }
+}
+
 /** Parse merge-tree output to extract conflicting files (exported for testing) */
 export function parseMergeTreeConflicts(output: string): string[] {
   const files: string[] = []
@@ -112,6 +200,87 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
       const rel = filePath.startsWith(rootPath) ? filePath.slice(rootPath.length).replace(/^\//, '') : filePath
       return await git(rootPath).show([`HEAD:${rel}`])
     } catch { return null }
+  })
+
+  ipc.handle('git:fileAtRef', async (_e, rootPath: string, ref: string, filePath: string): Promise<string | null> => {
+    try {
+      const rel = filePath.startsWith(rootPath) ? filePath.slice(rootPath.length).replace(/^\//, '') : filePath
+      return await git(rootPath).show([`${ref}:${rel}`])
+    } catch { return null }
+  })
+
+  /**
+   * Returns parsed unified diff hunks for a single file between two refs.
+   * Each hunk is a list of lines tagged as 'add' | 'del' | 'ctx' with their
+   * old/new line numbers — ready to render as a row-based diff view.
+   */
+  ipc.handle('git:fileDiff', async (_e, rootPath: string, baseRef: string, headRef: string, filePath: string) => {
+    try {
+      const g = git(rootPath)
+      const raw = await g.raw(['diff', '--unified=3', baseRef, headRef, '--', filePath])
+      return parseUnifiedDiff(raw)
+    } catch (e) {
+      console.error('[git:fileDiff]', e)
+      return { hunks: [] }
+    }
+  })
+
+  ipc.handle('git:diffBranchFiles', async (_e, rootPath: string, branchName: string, baseBranch: string = 'main') => {
+    try {
+      const g = git(rootPath)
+      const headRef = branchName || 'HEAD'
+      // Resolve the base ref — worktrees may not have local main/master,
+      // so try multiple candidates in order of likelihood
+      const candidates = [
+        `origin/${baseBranch}`,
+        baseBranch,
+        'origin/main',
+        'origin/master',
+        'main',
+        'master',
+      ]
+      let baseRef = ''
+      for (const candidate of candidates) {
+        try {
+          await g.raw(['rev-parse', '--verify', candidate])
+          baseRef = candidate
+          break
+        } catch { /* try next */ }
+      }
+      if (!baseRef) throw new Error(`Could not find base branch ref (tried: ${candidates.join(', ')})`)
+      // Find the merge base
+      const mergeBase = (await g.raw(['merge-base', baseRef, headRef])).trim()
+      // Get the list of changed files with status
+      const output = await g.raw(['diff', '--name-status', mergeBase, headRef])
+      const files: Array<{ path: string; status: string }> = []
+      for (const line of output.split('\n')) {
+        if (!line.trim()) continue
+        const [status, ...pathParts] = line.split('\t')
+        const filePath = pathParts.join('\t')
+        if (filePath) files.push({ path: filePath, status: status.charAt(0) })
+      }
+      // Get diff stats (additions/deletions per file)
+      const statOutput = await g.raw(['diff', '--numstat', mergeBase, headRef])
+      const stats: Record<string, { additions: number; deletions: number }> = {}
+      for (const line of statOutput.split('\n')) {
+        if (!line.trim()) continue
+        const [add, del, ...pathParts] = line.split('\t')
+        const fp = pathParts.join('\t')
+        if (fp) stats[fp] = { additions: parseInt(add) || 0, deletions: parseInt(del) || 0 }
+      }
+      return {
+        mergeBase,
+        branch: headRef,
+        files: files.map(f => ({
+          ...f,
+          additions: stats[f.path]?.additions ?? 0,
+          deletions: stats[f.path]?.deletions ?? 0,
+        })),
+      }
+    } catch (e) {
+      console.error('[git:diffBranchFiles]', e)
+      return { mergeBase: '', branch: '', files: [] }
+    }
   })
 
   ipc.handle('git:diff', async (_e, rootPath: string, filePath: string, staged: boolean): Promise<string> => {

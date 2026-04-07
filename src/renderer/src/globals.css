@@ -35,6 +35,24 @@ input, textarea, [contenteditable] {
   user-select: text;
 }
 
+/* Re-enable selection for opt-in containers and ALL their descendants
+   (the universal `* { user-select: none }` above otherwise re-applies to
+   nested spans, breaking selection inside syntax-highlighted code) */
+.code-review-selectable,
+.code-review-selectable * {
+  user-select: text;
+}
+
+/* Visible text selection on dark backgrounds */
+::selection {
+  background: #5b3fc1;
+  color: #ffffff;
+}
+::-moz-selection {
+  background: #5b3fc1;
+  color: #ffffff;
+}
+
 /* xterm.js scrollbar */
 .xterm-viewport::-webkit-scrollbar {
   width: 6px;

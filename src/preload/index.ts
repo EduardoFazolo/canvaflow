@@ -107,6 +107,25 @@ contextBridge.exposeInMainWorld('git', {
     ipcRenderer.invoke('git:status', rootPath),
   fileAtHead: (rootPath: string, filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('git:fileAtHead', rootPath, filePath),
+  fileAtRef: (rootPath: string, ref: string, filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke('git:fileAtRef', rootPath, ref, filePath),
+  fileDiff: (rootPath: string, baseRef: string, headRef: string, filePath: string): Promise<{
+    hunks: Array<{
+      header: string
+      oldStart: number
+      oldCount: number
+      newStart: number
+      newCount: number
+      lines: Array<{ kind: 'add' | 'del' | 'ctx'; oldLine: number | null; newLine: number | null; content: string }>
+    }>
+  }> =>
+    ipcRenderer.invoke('git:fileDiff', rootPath, baseRef, headRef, filePath),
+  diffBranchFiles: (rootPath: string, branchName: string, baseBranch?: string): Promise<{
+    mergeBase: string
+    branch: string
+    files: Array<{ path: string; status: string; additions: number; deletions: number }>
+  }> =>
+    ipcRenderer.invoke('git:diffBranchFiles', rootPath, branchName, baseBranch),
   diff: (rootPath: string, filePath: string, staged: boolean): Promise<string> =>
     ipcRenderer.invoke('git:diff', rootPath, filePath, staged),
   stage: (rootPath: string, filePaths: string[]): Promise<void> =>
@@ -185,6 +204,16 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.on('agent:file-change', listener)
     return () => ipcRenderer.removeListener('agent:file-change', listener)
   },
+})
+
+contextBridge.exposeInMainWorld('canvaflowMcp', {
+  onReviewComments: (cb: (reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => void): (() => void) => {
+    const listener = (_: unknown, reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => cb(reviewId, comments)
+    ipcRenderer.on('canvaflow-mcp:review-comments', listener)
+    return () => ipcRenderer.removeListener('canvaflow-mcp:review-comments', listener)
+  },
+  injectConfig: (targetDir: string): Promise<void> =>
+    ipcRenderer.invoke('canvaflow-mcp:inject-config', targetDir),
 })
 
 contextBridge.exposeInMainWorld('app', {

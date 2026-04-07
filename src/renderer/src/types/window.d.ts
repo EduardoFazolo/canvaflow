@@ -63,6 +63,11 @@ interface BrowserCaptureAndHideResult {
 
 declare global {
   interface Window {
+    canvaflowMcp: {
+      onReviewComments: (cb: (reviewId: string, comments: Array<{ file: string; line: number; severity: string; message: string }>) => void) => () => void
+      injectConfig: (targetDir: string) => Promise<void>
+    }
+
     terminal: {
       create: (id: string, workspaceId: string, cwd: string, shell: string) => Promise<void>
       write: (id: string, data: string) => void
@@ -233,6 +238,22 @@ declare global {
         files: Array<{ path: string; index: string; working: string }>
       }>
       fileAtHead: (rootPath: string, filePath: string) => Promise<string | null>
+      fileAtRef: (rootPath: string, ref: string, filePath: string) => Promise<string | null>
+      fileDiff: (rootPath: string, baseRef: string, headRef: string, filePath: string) => Promise<{
+        hunks: Array<{
+          header: string
+          oldStart: number
+          oldCount: number
+          newStart: number
+          newCount: number
+          lines: Array<{ kind: 'add' | 'del' | 'ctx'; oldLine: number | null; newLine: number | null; content: string }>
+        }>
+      }>
+      diffBranchFiles: (rootPath: string, branchName: string, baseBranch?: string) => Promise<{
+        mergeBase: string
+        branch: string
+        files: Array<{ path: string; status: string; additions: number; deletions: number }>
+      }>
       diff: (rootPath: string, filePath: string, staged: boolean) => Promise<string>
       stage: (rootPath: string, filePaths: string[]) => Promise<void>
       unstage: (rootPath: string, filePaths: string[]) => Promise<void>

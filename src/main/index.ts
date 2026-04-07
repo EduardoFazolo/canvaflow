@@ -16,6 +16,7 @@ import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
 import { registerOrchestratorHandlers } from '../plugins/orchestrator/main/handlers'
 import { registerWindowPickerHandlers } from '../plugins/windowpicker/main/handlers'
+import { startCanvaflowMcpBridge } from '../modules/servers/canvaflow_mcp/main/server'
 
 // Suppress noisy Chromium GPU/Skia internal errors that are benign in webview usage
 app.commandLine.appendSwitch('log-level', '3')
@@ -91,6 +92,7 @@ function createWindow(): void {
   setupPtyHandlers(() => mainWindow?.webContents ?? null)
   setupCoordinatorHandlers(() => mainWindow?.webContents ?? null)
   startAgentSignalServer(() => mainWindow?.webContents ?? null)
+  startCanvaflowMcpBridge(() => mainWindow?.webContents ?? null)
 
   // Apply session setup to every webview that attaches (covers named sessions too)
   mainWindow.webContents.on('did-attach-webview', (_event, webviewContents: WebContents) => {

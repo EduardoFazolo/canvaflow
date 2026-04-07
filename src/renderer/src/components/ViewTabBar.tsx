@@ -36,7 +36,17 @@ function GitBranchIcon(): React.ReactElement {
   )
 }
 
+function CodeReviewTabIcon(): React.ReactElement {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <circle cx="4.5" cy="4.5" r="3.2" stroke="currentColor" strokeWidth="1"/>
+      <line x1="6.8" y1="6.8" x2="9.5" y2="9.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
 function tabIcon(inst: ViewInstance): React.ReactElement {
+  if (inst.type === 'code-review') return <CodeReviewTabIcon />
   if (inst.worktreePath) return <GitBranchIcon />
   if (inst.type === 'canvas') return <CanvasTabIcon />
   if (inst.type === 'settings') return <SettingsTabIcon />
@@ -87,9 +97,49 @@ export function ViewTabBar(): React.ReactElement {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeId)
 
   // Only show tabs that belong to the current workspace (or have no parent = global tabs)
-  const visibleInstances = instances.filter((inst) =>
+  const filtered = instances.filter((inst) =>
     !inst.parentWorkspaceId || inst.parentWorkspaceId === activeWorkspaceId
   )
+
+  // Resolve each tab's effective parent. Use explicit parentViewId first;
+  // fall back to matching sourceCardId for legacy/persisted views without it.
+  const parentOf = (inst: ViewInstance): string | undefined => {
+    if (inst.parentViewId) return inst.parentViewId
+    if (inst.type === 'code-review' && inst.sourceCardId) {
+      const sibling = filtered.find((v) =>
+        v.type === 'canvas' && v.worktreePath && v.sourceCardId === inst.sourceCardId
+      )
+      return sibling?.id
+    }
+    return undefined
+  }
+
+  // Reorder so child tabs appear right after their parent.
+  const children = new Map<string, ViewInstance[]>()
+  const roots: ViewInstance[] = []
+  for (const inst of filtered) {
+    const pid = parentOf(inst)
+    if (pid) {
+      const list = children.get(pid) ?? []
+      list.push(inst)
+      children.set(pid, list)
+    } else {
+      roots.push(inst)
+    }
+  }
+  const visibleInstances: ViewInstance[] = []
+  for (const root of roots) {
+    visibleInstances.push(root)
+    const kids = children.get(root.id)
+    if (kids) visibleInstances.push(...kids)
+  }
+  // Append orphaned children (parent isn't visible) at the end
+  for (const inst of filtered) {
+    const pid = parentOf(inst)
+    if (pid && !roots.some((r) => r.id === pid) && !visibleInstances.includes(inst)) {
+      visibleInstances.push(inst)
+    }
+  }
 
 
   return (
@@ -105,14 +155,37 @@ export function ViewTabBar(): React.ReactElement {
       {visibleInstances.map((inst) => {
         const isActive = inst.id === activeId
         const isWorktree = !!inst.worktreePath
-        const labelColor = isWorktree
-          ? (isActive ? '#22d3ee' : 'rgba(34,211,238,0.5)')
-          : (isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)')
-        const accentColor = isWorktree ? '#22d3ee' : '#a78bfa'
+        const isCodeReview = inst.type === 'code-review'
+        const effectiveParentId = parentOf(inst)
+        const isChild = !!effectiveParentId && visibleInstances.some((v) => v.id === effectiveParentId)
+        const labelColor = isCodeReview
+          ? (isActive ? '#a78bfa' : 'rgba(167,139,250,0.5)')
+          : isWorktree
+            ? (isActive ? '#22d3ee' : 'rgba(34,211,238,0.5)')
+            : (isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.35)')
+        const accentColor = isCodeReview ? '#a78bfa' : isWorktree ? '#22d3ee' : '#a78bfa'
 
         return (
+          <React.Fragment key={inst.id}>
+            {isChild && (
+              <div
+                aria-hidden="true"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 14,
+                  marginLeft: -2,
+                  color: 'rgba(167,139,250,0.7)',
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="12" height="14" viewBox="0 0 12 14" fill="none">
+                  <path d="M2 2 V8 Q2 11 5 11 H11 M8 8 L11 11 L8 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                </svg>
+              </div>
+            )}
           <div
-            key={inst.id}
             onClick={() => {
               if (inst.type === 'canvas') {
                 const canvasId = inst.worktreePath ? inst.id : getMainCanvasId()
@@ -141,16 +214,16 @@ export function ViewTabBar(): React.ReactElement {
             }}
             onMouseEnter={(e) => {
               if (!isActive) {
-                (e.currentTarget as HTMLElement).style.color = isWorktree
-                  ? 'rgba(34,211,238,0.8)'
-                  : 'rgba(255,255,255,0.6)'
+                (e.currentTarget as HTMLElement).style.color = isCodeReview
+                  ? 'rgba(167,139,250,0.8)'
+                  : isWorktree ? 'rgba(34,211,238,0.8)' : 'rgba(255,255,255,0.6)'
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
-                (e.currentTarget as HTMLElement).style.color = isWorktree
-                  ? 'rgba(34,211,238,0.5)'
-                  : 'rgba(255,255,255,0.35)'
+                (e.currentTarget as HTMLElement).style.color = isCodeReview
+                  ? 'rgba(167,139,250,0.5)'
+                  : isWorktree ? 'rgba(34,211,238,0.5)' : 'rgba(255,255,255,0.35)'
               }
             }}
           >
@@ -203,6 +276,7 @@ export function ViewTabBar(): React.ReactElement {
               </button>
             )}
           </div>
+          </React.Fragment>
         )
       })}
     </div>
