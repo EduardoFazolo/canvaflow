@@ -253,6 +253,18 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     const shell = (node.props.shell as string) || appSettings.shell
     window.terminal.create(node.id, workspaceId, cwd, shell)
 
+    // Sync the PTY's cols/rows with the fitted xterm dimensions. The PTY spawns
+    // at a hardcoded default (80x24) and won't know the real terminal size until
+    // we resize it — without this, agents render narrow on initial mount until
+    // the user manually resizes the node. We re-fit on the next animation frame
+    // to catch any layout that hadn't settled when fit() ran above, then sync.
+    const syncSize = (): void => {
+      fitAddon.fit()
+      window.terminal.resize(node.id, term.cols, term.rows)
+    }
+    syncSize()
+    requestAnimationFrame(syncSize)
+
     // PTY → xterm (also signals activity to the navbar indicator)
     const unsub = window.terminal.onData(node.id, (data) => {
       const wasAtBottom = isAtBottomRef.current
