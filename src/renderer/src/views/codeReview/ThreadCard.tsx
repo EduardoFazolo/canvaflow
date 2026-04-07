@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import type { ReviewThread, ReviewMessage } from '../../../../modules/servers/canvaflow_mcp/shared/types'
 import type { NodeData } from '../../stores/nodeStore'
 import { useReviewStore } from '../../stores/reviewStore'
@@ -119,10 +119,18 @@ export function ThreadCard({
 }): React.ReactElement {
   const appendMessage = useReviewStore((s) => s.appendMessage)
   const [reply, setReply] = useState('')
+  // Guard against double-fire: handlePost can be triggered by both Cmd+Enter
+  // (textarea keydown) and the Post button click in rapid succession before
+  // setReply('') propagates through React's render cycle.
+  const postingRef = useRef(false)
 
   const handlePost = useCallback(() => {
+    if (postingRef.current) return
     const trimmed = reply.trim()
     if (!trimmed) return
+    postingRef.current = true
+    // Release the lock after the next render flush
+    setTimeout(() => { postingRef.current = false }, 0)
 
     // 1. Append the user's message to the thread locally (always)
     const userMsg: ReviewMessage = {

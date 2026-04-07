@@ -136,7 +136,7 @@ export function FileDiffView({
                     <DiffLineRow line={line} language={language} />
                     {lineThreads.length > 0 && (
                       <div style={{
-                        padding: '6px 16px 6px 124px',
+                        padding: '6px 16px 6px 24px',
                         background: '#0d0d0d',
                         display: 'flex',
                         flexDirection: 'column',
