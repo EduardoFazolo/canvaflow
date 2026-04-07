@@ -74,6 +74,7 @@ declare global {
 
     terminal: {
       create: (id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) => Promise<void>
+      sessionExists: (cwd: string, sessionId: string) => Promise<boolean>
       write: (id: string, data: string) => void
       resize: (id: string, cols: number, rows: number) => void
       kill: (id: string, workspaceId: string, deleteSession: boolean) => Promise<void>

@@ -259,6 +259,7 @@ function persistAgentRole(nodeId: string, role: AgentRole): void {
   void window.agent.saveMetadata(nodeId, { agentRole: role })
 }
 
+
 export function spawnAgent(opts: {
   agentId: AgentId
   viewKey: string
@@ -280,6 +281,8 @@ export function spawnAgent(opts: {
       cwd: worktreePath,
       claudeFlags: '--dangerously-skip-permissions',
     })
+    // Session ID allocation happens automatically via the node store side
+    // effect (maybeAllocateClaudeSession) for ALL claude spawn paths.
     window.coordinator.register(newNode.id, prompt, skipCommit ? { skipCommit: true } : undefined)
     if (view) viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
     if (role) persistAgentRole(newNode.id, role)

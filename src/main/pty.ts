@@ -1,11 +1,13 @@
 import { ipcMain, WebContents } from 'electron'
 import * as os from 'os'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { tmuxManager } from './tmux'
 import { AGENT_SIGNAL_PORT } from '../modules/servers/agentic_signals/shared/constants'
 import { detectAgentStatusFromTerminalBuffer, sanitizeTerminalOutput } from '../modules/servers/agentic_signals/shared/detection'
 import { logAgentDebug, summarizeText } from '../modules/servers/agentic_signals/shared/debug'
 import { coordinatorOnData } from './agentCoordinator'
+import { injectMcpConfig } from '../modules/servers/canvaflow_mcp/main/server'
 import type { AgentStatus } from '../modules/servers/agentic_signals/shared/types'
 
 interface IPty {
@@ -73,6 +75,12 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     // termios. When claude later switches to full raw mode, echo is already off
     // so nothing changes.
     if (shellBin === 'claude') {
+      // Make sure the CanvaFlow MCP + SessionStart hook are installed in the cwd
+      // BEFORE claude starts. Claude reads .claude/settings.json on startup, so
+      // the file must already exist by the time we exec it. This catches every
+      // spawn path (kanban, sidebar, manual, restart) in one place.
+      try { injectMcpConfig(defaultCwd) } catch (e) { console.error('[pty] injectMcpConfig failed:', e) }
+
       const claudeCmd = [shellBin, ...shellArgs].join(' ')
       shellBin = 'bash'
       shellArgs = ['-c', `stty -echo 2>/dev/null; exec ${claudeCmd}`]
@@ -170,6 +178,24 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
 
   ipcMain.handle('terminal:resize', (_event, id: string, cols: number, rows: number) => {
     try { ptys.get(id)?.resize(cols, rows) } catch { /* PTY already closed */ }
+  })
+
+  /**
+   * Check whether a Claude Code session JSONL exists for a given cwd + session ID.
+   * Used by ClaudeNode to decide whether `--resume <id>` is safe (the JSONL must
+   * exist) or whether to fall back to a plain `claude` start.
+   *
+   * Claude stores sessions at: ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl
+   * where encoded-cwd is the absolute cwd path with all '/' replaced by '-'.
+   */
+  ipcMain.handle('claude:sessionExists', (_event, cwd: string, sessionId: string): boolean => {
+    if (!cwd || !sessionId) return false
+    const rawCwd = cwd.startsWith('~/') ? os.homedir() + cwd.slice(1)
+                 : cwd === '~'         ? os.homedir()
+                 : cwd
+    const encoded = rawCwd.replace(/\//g, '-')
+    const sessionPath = join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`)
+    return existsSync(sessionPath)
   })
 
   ipcMain.handle('terminal:kill', async (_event, id: string, workspaceId: string, deleteSession: boolean) => {

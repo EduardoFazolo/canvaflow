@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('terminal', {
   write: (id: string, data: string) =>
     ipcRenderer.send('terminal:write', id, data),
 
+  sessionExists: (cwd: string, sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke('claude:sessionExists', cwd, sessionId),
+
   resize: (id: string, cols: number, rows: number) =>
     ipcRenderer.invoke('terminal:resize', id, cols, rows),
 
