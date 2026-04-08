@@ -180,10 +180,22 @@ export const useViewStore = create<ViewStore>((set, get) => ({
       const raw = await window.appState.get('worktree_views')
       if (raw) {
         const views = JSON.parse(raw) as ViewInstance[]
-        const restored = views.map((v) => v.type === 'code-review'
-          ? v // code-review views have no agent state to reset
-          : { ...v, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }
-        )
+        // Pass 1: restore agent state + migrate legacy code-review tabs that
+        // were saved without `parentWorkspaceId`. Inherit from their parent
+        // canvas view when available so they get scoped to the right workspace.
+        const byId = new Map(views.map((v) => [v.id, v]))
+        const restored = views.map((v) => {
+          if (v.type === 'code-review') {
+            if (!v.parentWorkspaceId && v.parentViewId) {
+              const parent = byId.get(v.parentViewId)
+              if (parent?.parentWorkspaceId) {
+                return { ...v, parentWorkspaceId: parent.parentWorkspaceId }
+              }
+            }
+            return v
+          }
+          return { ...v, agentStatus: 'idle' as AgentStatus, agentNodeId: undefined }
+        })
         if (restored.length > 0) {
           set((s) => ({ instances: [...s.instances, ...restored] }))
         }

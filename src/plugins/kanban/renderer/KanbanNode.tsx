@@ -611,6 +611,7 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
         branchName,
         sourceCardId: card.id,
         parentViewId: view?.id, // attach to the branch canvas tab
+        parentWorkspaceId: workspaceId, // scope to this workspace so other projects don't see it
       })
     }
   }, [])
