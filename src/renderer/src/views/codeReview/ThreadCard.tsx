@@ -4,6 +4,7 @@ import type { NodeData } from '../../stores/nodeStore'
 import { useNodeStore } from '../../stores/nodeStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { switchCanvas } from '../../stores/canvasManager'
+import { zoomFitNode } from '../../utils/zoomFocus'
 import {
   MENTION_REGEX,
   resolveAgentFromSlug,
@@ -33,21 +34,18 @@ const ROLE_AVATAR_GLYPH: Record<string, string> = {
 }
 
 /**
- * Switch to the canvas containing the given agent node.
- * Returns true if the node was found and the jump happened.
- *
- * NOTE: We deliberately do NOT call setFocusedNodeId here. Focusing a node
- * triggers downstream subscriptions (focus tracking, dwell timers, possibly
- * camera animations) that, combined with the canvas-switch repaint, can
- * cascade into a re-render storm when the click originates from inside a
- * heavy view like CodeReview. The user can click the node itself to focus
- * it once they're on the canvas.
+ * Switch to the canvas containing the given agent node and zoom the camera
+ * onto it. Returns true if the node was found and the jump happened.
  */
 function jumpToAgent(nodeId: string): boolean {
   const store = useNodeStore.getState()
   for (const [canvasId, canvasNodes] of store.workspaceNodes.entries()) {
     if (canvasNodes.has(nodeId)) {
       switchCanvas(canvasId)
+      // Defer zoom one frame so the canvas has rendered its new dimensions.
+      // zoomFitNode reads the canvas rect and the active store's nodes, both
+      // of which need the just-switched state to be committed.
+      requestAnimationFrame(() => zoomFitNode(nodeId))
       return true
     }
   }
@@ -55,36 +53,24 @@ function jumpToAgent(nodeId: string): boolean {
 }
 
 /**
- * Resolve which agent node a message should jump to.
- *
- * Preference order:
- *   1. The explicit `authorNodeId` if set (new MCP path stamps this)
- *   2. Fall back to matching the agent role against the canvas's agents
- *      (handles legacy messages from before node-id capture, plus messages
- *      that were posted by `add_review_comment` which never had a nodeId)
+ * Every agent-authored message carries the `authorNodeId` of the claude node
+ * that produced it (stamped server-side by the MCP server from its
+ * `CANVAFLOW_NODE_ID` env var). That id is the single source of truth for
+ * "which agent on which canvas?" — no name or role matching needed.
  */
-function resolveJumpTarget(message: ReviewMessage, agents: NodeData[]): string | null {
-  if (message.authorNodeId) return message.authorNodeId
-  if (message.authorRole === 'main') {
-    return agents.find((a) => a.agentRole === 'main')?.id ?? null
-  }
-  if (message.authorRole === 'reviewer') {
-    return agents.find((a) => a.agentRole === 'reviewer')?.id ?? null
-  }
-  return null
+function resolveJumpTarget(message: ReviewMessage): string | null {
+  return message.authorNodeId ?? null
 }
 
 function MessageRow({
   message,
   isFirst,
-  agents,
 }: {
   message: ReviewMessage
   isFirst: boolean
-  agents: NodeData[]
 }): React.ReactElement {
   const severityColor = message.severity ? SEVERITY_COLOR[message.severity] : null
-  const jumpTargetId = message.authorRole === 'user' ? null : resolveJumpTarget(message, agents)
+  const jumpTargetId = message.authorRole === 'user' ? null : resolveJumpTarget(message)
   const canJump = !!jumpTargetId
 
   const handleJump = (e: React.MouseEvent): void => {
@@ -282,7 +268,7 @@ export function ThreadCard({
     }}>
       {/* Stacked messages */}
       {thread.messages.map((m, i) => (
-        <MessageRow key={i} message={m} isFirst={i === 0} agents={agents} />
+        <MessageRow key={i} message={m} isFirst={i === 0} />
       ))}
 
       {/* Reply footer */}

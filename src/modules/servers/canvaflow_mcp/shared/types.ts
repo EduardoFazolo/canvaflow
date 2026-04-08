@@ -51,6 +51,11 @@ export interface ReviewThread {
  */
 export interface AddReviewCommentsPayload {
   reviewId: string
+  /** Node id of the reviewer agent creating these comments, captured from
+   *  the MCP server's CANVAFLOW_NODE_ID env var. Used so the initial thread
+   *  message is clickable and jumps to the reviewer on the canvas. */
+  authorNodeId?: string | null
+  authorName?: string
   comments: Array<{
     file: string
     line: number

@@ -115,8 +115,8 @@ const routes: Record<string, Record<string, RouteHandler>> = {
         file: c.file,
         line: c.line,
         messages: [{
-          authorNodeId: null,
-          authorName: 'Claude',
+          authorNodeId: payload.authorNodeId ?? null,
+          authorName: payload.authorName ?? 'Claude',
           authorRole: 'reviewer',
           body: c.message,
           severity: c.severity,

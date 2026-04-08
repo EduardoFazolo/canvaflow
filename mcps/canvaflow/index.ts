@@ -187,6 +187,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const result = await bridgePost('/review/comments', {
         reviewId: review_id,
+        authorNodeId: process.env.CANVAFLOW_NODE_ID ?? null,
         comments: [{ file, line, severity, message }],
       })
 
@@ -249,6 +250,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const result = await bridgePost('/review/comments', {
         reviewId: review_id,
+        authorNodeId: process.env.CANVAFLOW_NODE_ID ?? null,
         comments,
       })
 
