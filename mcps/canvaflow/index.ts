@@ -142,6 +142,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['review_id', 'comments'],
       },
     },
+    {
+      name: 'reply_to_review_thread',
+      description:
+        'Reply to an existing review thread. Use this when the user routes a review ' +
+        'comment to you and asks you to respond. The reply is appended to the thread ' +
+        'so the user, the original reviewer, and any other agents can see the full ' +
+        'conversation. The thread_id is given to you in the routed message — pass it ' +
+        'back exactly as received.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          thread_id: {
+            type: 'string',
+            description: 'The thread ID to reply to (provided by the user / system in the routed message)',
+          },
+          body: {
+            type: 'string',
+            description: 'Your reply. Markdown is supported (code spans, bold, italic).',
+          },
+          author_name: {
+            type: 'string',
+            description: 'Optional display name shown next to your reply (e.g. "Claude (main)"). Defaults to "Agent".',
+          },
+        },
+        required: ['thread_id', 'body'],
+      },
+    },
   ],
 }))
 
@@ -160,6 +187,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const result = await bridgePost('/review/comments', {
         reviewId: review_id,
+        authorNodeId: process.env.CANVAFLOW_NODE_ID ?? null,
         comments: [{ file, line, severity, message }],
       })
 
@@ -175,6 +203,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
+  if (name === 'reply_to_review_thread') {
+    const { thread_id, body, author_name } = args as {
+      thread_id: string; body: string; author_name?: string
+    }
+
+    if (!thread_id || !body) {
+      return {
+        content: [{ type: 'text', text: 'Error: thread_id and body are required' }],
+        isError: true,
+      }
+    }
+
+    try {
+      // CANVAFLOW_NODE_ID is set by the PTY spawner — claude inherits it,
+      // and we (the MCP server) inherit it from claude. Pass it through so
+      // the renderer can map the reply back to a specific agent node and
+      // surface a "jump to agent" affordance.
+      const nodeId = process.env.CANVAFLOW_NODE_ID ?? null
+
+      const result = await bridgePost('/review/reply', {
+        threadId: thread_id,
+        body,
+        authorName: author_name ?? 'Agent',
+        authorRole: 'agent',
+        authorNodeId: nodeId,
+      })
+
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true }
+      }
+
+      return {
+        content: [{ type: 'text', text: `Reply posted to thread ${thread_id}.` }],
+      }
+    } catch {
+      return bridgeError('reply_to_review_thread')
+    }
+  }
+
   if (name === 'batch_review_comments') {
     const { review_id, comments } = args as {
       review_id: string; comments: ReviewComment[]
@@ -183,6 +250,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const result = await bridgePost('/review/comments', {
         reviewId: review_id,
+        authorNodeId: process.env.CANVAFLOW_NODE_ID ?? null,
         comments,
       })
 

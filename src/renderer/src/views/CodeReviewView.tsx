@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useViewStore } from '../stores/viewStore'
 import { useReviewStore } from '../stores/reviewStore'
-import { spawnAgent } from '../../../plugins/kanban/renderer/agentShared'
+import { useNodeStore } from '../stores/nodeStore'
+import { spawnAgent, findAllClaudeAgentsOnCanvas } from '../../../plugins/kanban/renderer/agentShared'
 import { switchCanvas } from '../stores/canvasManager'
-import type { ReviewComment } from '../../../modules/servers/canvaflow_mcp/shared/types'
+import type { ReviewThread } from '../../../modules/servers/canvaflow_mcp/shared/types'
 import { FileDiffView } from './codeReview/FileDiffView'
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,7 @@ const STATUS_COLOR: Record<string, string> = {
   C: '#73c991',
 }
 
-const EMPTY_COMMENTS: ReviewComment[] = []
+const EMPTY_THREADS: ReviewThread[] = []
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,9 +46,21 @@ export function CodeReviewView(): React.ReactElement {
   const branchName = activeView?.branchName ?? ''
   const reviewId = activeView?.id ?? ''
 
-  // Review comments from the store (populated by MCP bridge)
-  const allComments = useReviewStore((s) =>
-    reviewId ? (s.comments[reviewId] ?? EMPTY_COMMENTS) : EMPTY_COMMENTS
+  // Review threads from the store (populated by MCP bridge)
+  const allThreads = useReviewStore((s) =>
+    reviewId ? (s.threads[reviewId] ?? EMPTY_THREADS) : EMPTY_THREADS
+  )
+  const clearReview = useReviewStore((s) => s.clearReview)
+
+  // Find all claude agents on the worktree canvas. Subscribe to workspaceNodes
+  // so the picker re-renders when agents are spawned/removed mid-review.
+  const workspaceNodes = useNodeStore((s) => s.workspaceNodes)
+  const branchCanvasView = useViewStore((s) =>
+    s.instances.find((i) => i.type === 'canvas' && i.worktreePath === worktreePath)
+  )
+  const agents = React.useMemo(
+    () => branchCanvasView ? findAllClaudeAgentsOnCanvas(branchCanvasView.id) : [],
+    [branchCanvasView, workspaceNodes],
   )
 
   const [files, setFiles] = useState<DiffFile[]>([])
@@ -161,10 +174,10 @@ export function CodeReviewView(): React.ReactElement {
   const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0)
   const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0)
 
-  // Filter comments for the selected file
-  const fileComments = selectedFile
-    ? allComments.filter((c) => c.file === selectedFile)
-    : EMPTY_COMMENTS
+  // Threads filtered to the selected file
+  const fileThreads = selectedFile
+    ? allThreads.filter((t) => t.file === selectedFile)
+    : EMPTY_THREADS
 
   if (!activeView) {
     return <div style={{ flex: 1, background: '#0d0d0d' }} />
@@ -202,15 +215,53 @@ export function CodeReviewView(): React.ReactElement {
         {totalDeletions > 0 && (
           <span style={{ fontSize: 11, color: '#f44747', fontFamily: 'monospace' }}>-{totalDeletions}</span>
         )}
-        {allComments.length > 0 && (
+        {allThreads.length > 0 && (
           <span style={{
             fontSize: 10, fontWeight: 600, color: '#a78bfa',
             background: 'rgba(167,139,250,0.12)', borderRadius: 8,
             padding: '1px 8px', lineHeight: '18px',
           }}>
-            {allComments.length} comment{allComments.length !== 1 ? 's' : ''}
+            {allThreads.length} comment{allThreads.length !== 1 ? 's' : ''}
           </span>
         )}
+
+        {/* Clear all threads */}
+        {allThreads.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Clear all ${allThreads.length} review comment${allThreads.length === 1 ? '' : 's'}?`)) {
+                clearReview(reviewId)
+              }
+            }}
+            style={{
+              padding: '4px 12px', borderRadius: 6,
+              border: '1px solid rgba(239,68,68,0.3)',
+              background: 'rgba(239,68,68,0.08)',
+              color: 'rgba(239,68,68,0.85)',
+              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'background 0.1s, border-color 0.1s',
+            }}
+            title="Delete all review threads for this branch"
+            onMouseEnter={(e) => {
+              Object.assign((e.currentTarget as HTMLElement).style, {
+                background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.5)',
+              })
+            }}
+            onMouseLeave={(e) => {
+              Object.assign((e.currentTarget as HTMLElement).style, {
+                background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.3)',
+              })
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+              <path d="M3 4h8M5.5 4V3a1 1 0 011-1h1a1 1 0 011 1v1M4 4l.5 7a1 1 0 001 1h3a1 1 0 001-1L10 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Clear all
+          </button>
+        )}
+
         {files.length > 0 && (
           <button
             onClick={startAiReview}
@@ -280,7 +331,7 @@ export function CodeReviewView(): React.ReactElement {
                 const fileName = file.path.split('/').pop() ?? file.path
                 const dirPath = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : ''
                 const statusColor = STATUS_COLOR[file.status] ?? 'rgba(255,255,255,0.5)'
-                const fileCommentCount = allComments.filter((c) => c.file === file.path).length
+                const fileCommentCount = allThreads.filter((t) => t.file === file.path).length
 
                 return (
                   <div
@@ -370,7 +421,10 @@ export function CodeReviewView(): React.ReactElement {
             worktreePath={worktreePath}
             baseRef={mergeBase}
             headRef={headRef}
-            comments={fileComments}
+            threads={fileThreads}
+            reviewId={reviewId}
+            branchName={branchName}
+            agents={agents}
           />
         ) : (
           <div style={{

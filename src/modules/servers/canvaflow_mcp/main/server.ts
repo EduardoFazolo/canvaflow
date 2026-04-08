@@ -14,7 +14,14 @@ import type { WebContents } from 'electron'
 import { join } from 'path'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { CANVAFLOW_MCP_PORT } from '../shared/constants'
-import type { AddReviewCommentsPayload, BridgeResponse, ReviewComment } from '../shared/types'
+import type {
+  AddReviewCommentsPayload,
+  BridgeResponse,
+  ReplyToThreadPayload,
+  ReviewMessage,
+  ReviewSeverity,
+  ReviewThread,
+} from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -33,7 +40,14 @@ function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
-function isValidComment(c: unknown): c is ReviewComment {
+interface RawComment {
+  file: string
+  line: number
+  severity: ReviewSeverity
+  message: string
+}
+
+function isValidComment(c: unknown): c is RawComment {
   if (!c || typeof c !== 'object') return false
   const obj = c as Record<string, unknown>
   return (
@@ -44,6 +58,23 @@ function isValidComment(c: unknown): c is ReviewComment {
   )
 }
 
+/**
+ * Per-review thread counter so each new thread within the same review gets a
+ * monotonically increasing index. Cleared when the renderer reports the review
+ * was cleared (not yet wired — counters reset on app restart for now).
+ */
+const threadCounters = new Map<string, number>()
+
+function nextThreadIndex(reviewId: string): number {
+  const next = (threadCounters.get(reviewId) ?? 0)
+  threadCounters.set(reviewId, next + 1)
+  return next
+}
+
+function buildThreadId(reviewId: string, file: string, line: number): string {
+  return `${reviewId}::${file}::${line}::${nextThreadIndex(reviewId)}`
+}
+
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
@@ -52,6 +83,11 @@ type RouteHandler = (req: IncomingMessage, res: ServerResponse, wc: WebContents)
 
 const routes: Record<string, Record<string, RouteHandler>> = {
   POST: {
+    /**
+     * Create new review threads. Each input comment becomes a thread with one
+     * initial message. Returns the generated thread IDs in input order so the
+     * MCP tool caller can correlate (e.g. for follow-up replies).
+     */
     '/review/comments': async (req, res, wc) => {
       const raw = await readBody(req)
       let payload: AddReviewCommentsPayload
@@ -73,10 +109,57 @@ const routes: Record<string, Record<string, RouteHandler>> = {
         return json(res, 400, { ok: false, error: 'No valid comments. Each needs: file (string), line (number >= 1), severity (critical|warning|nit), message (string)' })
       }
 
-      wc.send('canvaflow-mcp:review-comments', payload.reviewId, valid)
-      json(res, 200, { ok: true, count: valid.length })
+      const now = Date.now()
+      const threads: ReviewThread[] = valid.map((c) => ({
+        id: buildThreadId(payload.reviewId, c.file, c.line),
+        file: c.file,
+        line: c.line,
+        messages: [{
+          authorNodeId: payload.authorNodeId ?? null,
+          authorName: payload.authorName ?? 'Claude',
+          authorRole: 'reviewer',
+          body: c.message,
+          severity: c.severity,
+          createdAt: now,
+        }],
+      }))
+
+      wc.send('canvaflow-mcp:review-comments', payload.reviewId, threads)
+      json(res, 200, { ok: true, count: threads.length, threadIds: threads.map((t) => t.id) })
     },
 
+    /**
+     * Append a message to an existing thread. Used by the
+     * `reply_to_review_thread` MCP tool when an agent is responding to a
+     * comment routed to it by the user.
+     */
+    '/review/reply': async (req, res, wc) => {
+      const raw = await readBody(req)
+      let payload: ReplyToThreadPayload
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        return json(res, 400, { ok: false, error: 'Invalid JSON body' })
+      }
+
+      if (!payload.threadId || typeof payload.threadId !== 'string') {
+        return json(res, 400, { ok: false, error: 'threadId is required' })
+      }
+      if (!payload.body || typeof payload.body !== 'string') {
+        return json(res, 400, { ok: false, error: 'body is required' })
+      }
+
+      const message: ReviewMessage = {
+        authorNodeId: payload.authorNodeId ?? null,
+        authorName: payload.authorName ?? 'Agent',
+        authorRole: payload.authorRole ?? 'agent',
+        body: payload.body,
+        createdAt: Date.now(),
+      }
+
+      wc.send('canvaflow-mcp:review-reply', payload.threadId, message)
+      json(res, 200, { ok: true })
+    },
   },
 
   GET: {

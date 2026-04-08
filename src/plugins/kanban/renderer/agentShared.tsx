@@ -354,3 +354,52 @@ export function findMainAgent(canvasId: string): import('../../../renderer/src/s
 export function findReviewerAgents(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
   return getAgentNodesOnCanvas(canvasId).filter((n) => n.agentRole === 'reviewer')
 }
+
+/**
+ * All claude agents on a canvas — used to populate the agent picker in the
+ * code review view. Sorted by createdAt (oldest first) so the picker is
+ * stable across renders.
+ */
+export function findAllClaudeAgentsOnCanvas(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
+  return getAgentNodesOnCanvas(canvasId)
+    .filter((n) => n.type === 'claude')
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+}
+
+/** Human-friendly label for an agent node, used in the picker dropdown. */
+export function agentLabel(node: import('../../../renderer/src/stores/nodeStore').NodeData): string {
+  if (node.agentRole === 'main') return 'Claude (main)'
+  if (node.agentRole === 'reviewer') return 'Claude (reviewer)'
+  return `Claude (${node.id.slice(0, 6)})`
+}
+
+/**
+ * Stable, lowercase mention token for an agent — what the user types after `@`
+ * to address them. Used by both the autocomplete popover and the parser that
+ * extracts mentions from a posted message.
+ *
+ * Conventions:
+ *   - role 'main'     → `main`
+ *   - role 'reviewer' → `reviewer`
+ *   - untagged claude → `claude-<6-char-id>` (uses lowercased node id prefix)
+ */
+export function agentSlug(node: import('../../../renderer/src/stores/nodeStore').NodeData): string {
+  if (node.agentRole === 'main') return 'main'
+  if (node.agentRole === 'reviewer') return 'reviewer'
+  return `claude-${node.id.slice(0, 6).toLowerCase()}`
+}
+
+/**
+ * Resolve a mention token (without the leading `@`) to an agent node from a
+ * candidate list. Case-insensitive. Returns null if no match.
+ */
+export function resolveAgentFromSlug(
+  slug: string,
+  agents: import('../../../renderer/src/stores/nodeStore').NodeData[],
+): import('../../../renderer/src/stores/nodeStore').NodeData | null {
+  const target = slug.toLowerCase()
+  return agents.find((a) => agentSlug(a).toLowerCase() === target) ?? null
+}
+
+/** Regex matching `@<slug>` mentions in a string. Captures the slug (no @). */
+export const MENTION_REGEX = /@([a-z][a-z0-9-]*)/gi

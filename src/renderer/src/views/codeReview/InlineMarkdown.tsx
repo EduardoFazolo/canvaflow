@@ -3,9 +3,10 @@ import { getHighlighter, SHIKI_THEME } from './shikiHighlighter'
 
 /**
  * Renders a subset of inline markdown:
- *   `code`  → highlighted <code>
- *   **bold** → <strong>
- *   *italic* → <em>
+ *   `code`     → highlighted <code>
+ *   **bold**   → <strong>
+ *   *italic*   → <em>
+ *   @mention   → colored chip (matches the autocomplete slug format)
  *
  * Code spans are syntax-highlighted with shiki when they look like real code.
  */
@@ -17,6 +18,7 @@ export function InlineMarkdown({ text }: { text: string }): React.ReactElement {
         if (tok.type === 'text') return <React.Fragment key={i}>{tok.value}</React.Fragment>
         if (tok.type === 'bold') return <strong key={i}>{tok.value}</strong>
         if (tok.type === 'italic') return <em key={i}>{tok.value}</em>
+        if (tok.type === 'mention') return <MentionChip key={i} slug={tok.value} />
         return <CodeSpan key={i} text={tok.value} />
       })}
     </>
@@ -32,8 +34,11 @@ type Token =
   | { type: 'code'; value: string }
   | { type: 'bold'; value: string }
   | { type: 'italic'; value: string }
+  | { type: 'mention'; value: string } // value = the slug (no @)
 
-const TOKEN_RE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g
+// Mentions only match if at start-of-string or after whitespace, to avoid
+// chewing up emails like foo@bar. The lookbehind keeps the regex stateless.
+const TOKEN_RE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?:^|(?<=\s))@[a-z][a-z0-9-]*)/gi
 
 function tokenize(text: string): Token[] {
   const tokens: Token[] = []
@@ -44,11 +49,45 @@ function tokenize(text: string): Token[] {
     const tok = m[0]
     if (tok.startsWith('`')) tokens.push({ type: 'code', value: tok.slice(1, -1) })
     else if (tok.startsWith('**')) tokens.push({ type: 'bold', value: tok.slice(2, -2) })
-    else tokens.push({ type: 'italic', value: tok.slice(1, -1) })
+    else if (tok.startsWith('*')) tokens.push({ type: 'italic', value: tok.slice(1, -1) })
+    else tokens.push({ type: 'mention', value: tok.slice(1) }) // strip leading @
     last = m.index + tok.length
   }
   if (last < text.length) tokens.push({ type: 'text', value: text.slice(last) })
   return tokens
+}
+
+// ---------------------------------------------------------------------------
+// Mention chip
+// ---------------------------------------------------------------------------
+
+const MENTION_COLOR: Record<string, string> = {
+  main: '#22c55e',
+  reviewer: '#14b8a6',
+}
+
+function MentionChip({ slug }: { slug: string }): React.ReactElement {
+  // Slug is what came after @ in the message body. Color by known role.
+  const lower = slug.toLowerCase()
+  const color = MENTION_COLOR[lower] ?? '#a78bfa'
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '0 6px',
+        margin: '0 1px',
+        borderRadius: 4,
+        background: `${color}22`,
+        border: `1px solid ${color}55`,
+        color,
+        fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, monospace',
+        fontSize: '0.88em',
+        fontWeight: 600,
+      }}
+    >
+      @{slug}
+    </span>
+  )
 }
 
 // ---------------------------------------------------------------------------
