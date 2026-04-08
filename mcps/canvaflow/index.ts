@@ -34,6 +34,11 @@ interface ReviewComment {
   message: string
 }
 
+interface KanbanTask {
+  title: string
+  description?: string
+}
+
 interface BridgeResponse {
   ok: boolean
   error?: string
@@ -169,6 +174,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['thread_id', 'body'],
       },
     },
+    {
+      name: 'add_kanban_tasks',
+      description:
+        'Batch-add tasks to the kanban board on the current CanvaFlow canvas. ' +
+        'If a kanban node is already open on the active canvas, its active board is used; ' +
+        'otherwise a new kanban node is created. Each task is added as a card in the first ' +
+        'column (e.g. BACKLOG). Tasks whose title already exists anywhere in the active ' +
+        'board are silently skipped — this tool never edits or removes existing cards.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          tasks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', description: 'Card title — also used as the dedup key' },
+                description: { type: 'string', description: 'Optional longer description shown when the card is expanded' },
+              },
+              required: ['title'],
+            },
+            description: 'Array of tasks to add',
+          },
+        },
+        required: ['tasks'],
+      },
+    },
   ],
 }))
 
@@ -266,6 +298,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     } catch {
       return bridgeError('batch_review_comments')
+    }
+  }
+
+  if (name === 'add_kanban_tasks') {
+    const { tasks } = args as { tasks: KanbanTask[] }
+
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'Error: tasks must be a non-empty array' }],
+        isError: true,
+      }
+    }
+
+    try {
+      const result = await bridgePost('/kanban/add-tasks', { tasks })
+
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true }
+      }
+
+      const count = result.count ?? tasks.length
+      return {
+        content: [{
+          type: 'text',
+          text: `${count} kanban task${count !== 1 ? 's' : ''} queued on the current canvas. ` +
+                `Duplicate titles already on the board will be skipped automatically.`,
+        }],
+      }
+    } catch {
+      return bridgeError('add_kanban_tasks')
     }
   }
 

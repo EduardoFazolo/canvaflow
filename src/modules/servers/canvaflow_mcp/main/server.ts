@@ -15,6 +15,7 @@ import { join } from 'path'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { CANVAFLOW_MCP_PORT } from '../shared/constants'
 import type {
+  AddKanbanTasksPayload,
   AddReviewCommentsPayload,
   BridgeResponse,
   ReplyToThreadPayload,
@@ -159,6 +160,42 @@ const routes: Record<string, Record<string, RouteHandler>> = {
 
       wc.send('canvaflow-mcp:review-reply', payload.threadId, message)
       json(res, 200, { ok: true })
+    },
+
+    /**
+     * Batch-add kanban tasks to the current canvas's board. If no kanban node
+     * is present on the active canvas, the renderer creates one. Duplicate
+     * titles (anywhere in the active board) are skipped; existing cards are
+     * never edited or removed. Fire-and-forget — the bridge returns as soon
+     * as the IPC is dispatched; the renderer does the dedup.
+     */
+    '/kanban/add-tasks': async (req, res, wc) => {
+      const raw = await readBody(req)
+      let payload: AddKanbanTasksPayload
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        return json(res, 400, { ok: false, error: 'Invalid JSON body' })
+      }
+
+      if (!Array.isArray(payload.tasks) || payload.tasks.length === 0) {
+        return json(res, 400, { ok: false, error: 'tasks must be a non-empty array' })
+      }
+
+      const valid = payload.tasks.filter((t): t is { title: string; description?: string } => {
+        if (!t || typeof t !== 'object') return false
+        const obj = t as Record<string, unknown>
+        if (typeof obj.title !== 'string' || obj.title.length === 0) return false
+        if (obj.description !== undefined && typeof obj.description !== 'string') return false
+        return true
+      })
+
+      if (valid.length === 0) {
+        return json(res, 400, { ok: false, error: 'No valid tasks. Each needs: title (non-empty string), description (optional string)' })
+      }
+
+      wc.send('canvaflow-mcp:kanban-add-tasks', valid)
+      json(res, 200, { ok: true, count: valid.length })
     },
   },
 

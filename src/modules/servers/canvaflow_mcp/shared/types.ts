@@ -76,6 +76,19 @@ export interface ReplyToThreadPayload {
   body: string
 }
 
+/**
+ * Request body for POST /kanban/add-tasks — used by the `add_kanban_tasks`
+ * MCP tool to batch-append cards to the current canvas's kanban board. The
+ * bridge targets whichever canvas is currently active in the renderer; the
+ * caller does not pick a canvas or board explicitly.
+ */
+export interface AddKanbanTasksPayload {
+  tasks: Array<{
+    title: string
+    description?: string
+  }>
+}
+
 /** Generic success/error response from the HTTP bridge. */
 export interface BridgeResponse {
   ok: boolean

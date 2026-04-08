@@ -70,6 +70,9 @@ declare global {
     canvaflowMcp: {
       onReviewComments: (cb: (reviewId: string, threads: unknown[]) => void) => () => void
       onReviewReply: (cb: (threadId: string, message: unknown) => void) => () => void
+      onAddKanbanTasks: (
+        cb: (tasks: Array<{ title: string; description?: string }>) => void,
+      ) => () => void
       injectConfig: (targetDir: string) => Promise<void>
     }
 

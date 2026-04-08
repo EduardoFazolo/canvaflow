@@ -237,6 +237,16 @@ contextBridge.exposeInMainWorld('canvaflowMcp', {
     ipcRenderer.on('canvaflow-mcp:review-reply', listener)
     return () => ipcRenderer.removeListener('canvaflow-mcp:review-reply', listener)
   },
+  onAddKanbanTasks: (
+    cb: (tasks: Array<{ title: string; description?: string }>) => void,
+  ): (() => void) => {
+    const listener = (
+      _: unknown,
+      tasks: Array<{ title: string; description?: string }>,
+    ) => cb(tasks)
+    ipcRenderer.on('canvaflow-mcp:kanban-add-tasks', listener)
+    return () => ipcRenderer.removeListener('canvaflow-mcp:kanban-add-tasks', listener)
+  },
   injectConfig: (targetDir: string): Promise<void> =>
     ipcRenderer.invoke('canvaflow-mcp:inject-config', targetDir),
 })

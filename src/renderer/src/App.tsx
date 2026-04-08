@@ -9,6 +9,7 @@ import { useWorkspaceInit } from './hooks/useWorkspaceInit'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useAgentStatus } from '../../modules/servers/agentic_signals/renderer/useAgentStatus'
 import { initReviewIpc } from './stores/reviewStore'
+import { initKanbanMcpIpc } from '../../plugins/kanban/mcp'
 import { useViewStore } from './stores/viewStore'
 import { setCanvasViewport } from './stores/canvasViewportStore'
 
@@ -17,6 +18,7 @@ export default function App(): React.ReactElement {
   useAutoSave()
   useAgentStatus()
   useEffect(() => { initReviewIpc() }, [])
+  useEffect(() => { initKanbanMcpIpc() }, [])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
