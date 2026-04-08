@@ -1,6 +1,6 @@
 import { ipcMain, WebContents } from 'electron'
 import * as os from 'os'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmuxManager } from './tmux'
 import { AGENT_SIGNAL_PORT } from '../modules/servers/agentic_signals/shared/constants'
@@ -20,6 +20,43 @@ interface IPty {
 
 const ptys = new Map<string, IPty>()
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/**
+ * Pre-accept Claude Code's "trust this folder?" dialog for a cwd by writing
+ * `hasTrustDialogAccepted: true` into ~/.claude.json. Claude Code reads this
+ * file on startup and will skip the dialog when the flag is set for the
+ * current project path.
+ *
+ * Without this, every new worktree / every new canvas cwd prompts the user
+ * again — extremely annoying when canvaflow creates dozens of worktrees.
+ *
+ * Idempotent and best-effort: any failure (missing file, parse error, concurrent
+ * write) is swallowed — worst case the user still sees the dialog that one time.
+ */
+const trustedCwds = new Set<string>()
+function markCwdTrusted(cwd: string): void {
+  if (!cwd || trustedCwds.has(cwd)) return
+  try {
+    const configPath = join(os.homedir(), '.claude.json')
+    let config: Record<string, unknown> = {}
+    if (existsSync(configPath)) {
+      try { config = JSON.parse(readFileSync(configPath, 'utf-8')) } catch { config = {} }
+    }
+    const projects = (config.projects as Record<string, Record<string, unknown>> | undefined) ?? {}
+    const entry = projects[cwd] ?? {}
+    if (entry.hasTrustDialogAccepted === true) {
+      trustedCwds.add(cwd)
+      return
+    }
+    entry.hasTrustDialogAccepted = true
+    projects[cwd] = entry
+    config.projects = projects
+    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    trustedCwds.add(cwd)
+  } catch (e) {
+    console.error('[pty] markCwdTrusted failed:', e)
+  }
+}
 
 export function setupPtyHandlers(getWebContents: () => WebContents | null): void {
   ipcMain.handle('terminal:create', async (_event, id: string, workspaceId: string, cwd: string, shell: string, cols?: number, rows?: number) => {
@@ -80,6 +117,10 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
       // the file must already exist by the time we exec it. This catches every
       // spawn path (kanban, sidebar, manual, restart) in one place.
       try { injectMcpConfig(defaultCwd) } catch (e) { console.error('[pty] injectMcpConfig failed:', e) }
+
+      // Pre-accept the "trust this folder?" dialog for this cwd so claude
+      // doesn't prompt every time we spawn a fresh worktree/canvas.
+      markCwdTrusted(defaultCwd)
 
       const claudeCmd = [shellBin, ...shellArgs].join(' ')
       shellBin = 'bash'

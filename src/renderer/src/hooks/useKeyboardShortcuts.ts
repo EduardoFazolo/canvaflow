@@ -3,7 +3,7 @@ import { useNodeStore, NodeType } from '../stores/nodeStore'
 import { useCameraStore } from '../stores/cameraStore'
 import { fitAllNodes } from '../utils/canvasUtils'
 import { notifyCanvasInteractionEnd, notifyCanvasInteractionStart } from '../utils/canvasInteraction'
-import { getActiveWorkspace } from '../stores/workspaceStore'
+import { getActiveCwd } from '../stores/viewStore'
 import { zoomFitNode } from '../utils/zoomFocus'
 
 interface Options {
@@ -31,7 +31,7 @@ export function useKeyboardShortcuts({ onSearch, onSettings }: Options): void {
     const unsub = window.app.onShortcut((name) => {
       switch (name) {
         case 'newTerminal': {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getActiveCwd()
           addAndFocus('terminal', 300, 200, { cwd })
           break
         }
@@ -39,17 +39,17 @@ export function useKeyboardShortcuts({ onSearch, onSettings }: Options): void {
           addAndFocus('browser', 400, 300)
           break
         case 'newFiles': {
-          const rootPath = getActiveWorkspace()?.path || ''
+          const rootPath = getActiveCwd()
           addAndFocus('files', 350, 240, rootPath ? { path: rootPath } : undefined)
           break
         }
         case 'newClaude': {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getActiveCwd()
           addAndFocus('claude', 350, 240, { cwd })
           break
         }
         case 'newEditor': {
-          const rootPath = getActiveWorkspace()?.path || ''
+          const rootPath = getActiveCwd()
           addAndFocus('monaco', 500, 320, { rootPath })
           break
         }

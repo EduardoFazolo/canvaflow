@@ -7,7 +7,7 @@ import {
 } from './ui/context-menu'
 import { useCameraStore } from '../stores/cameraStore'
 import { fitAllNodes } from '../utils/canvasUtils'
-import { getActiveWorkspace } from '../stores/workspaceStore'
+import { getActiveCwd } from '../stores/viewStore'
 import { zoomFitNode } from '../utils/zoomFocus'
 
 interface Props {
@@ -40,7 +40,7 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getActiveCwd()
           addAndFocus('terminal', 300, 200, { cwd })
         }}>
           <span style={{ flex: 1 }}>New Terminal</span>
@@ -60,14 +60,14 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
           New Trello
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          const cwd = getActiveWorkspace()?.path || ''
+          const cwd = getActiveCwd()
           addAndFocus('claude', 350, 240, { cwd })
         }}>
           <span style={{ flex: 1 }}>New Claude</span>
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧C</span>
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          const rootPath = getActiveWorkspace()?.path || ''
+          const rootPath = getActiveCwd()
           addAndFocus('monaco', 500, 320, { rootPath })
         }}>
           <span style={{ flex: 1 }}>New Editor</span>

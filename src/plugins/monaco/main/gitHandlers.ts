@@ -1,4 +1,4 @@
-import { readFile, readdir, symlink, mkdir, unlink } from 'fs/promises'
+import { readFile, readdir, symlink, mkdir, unlink, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import simpleGit from 'simple-git'
@@ -42,8 +42,11 @@ async function symlinkGitignoredFiles(
         }
       }
     } else {
-      // Fallback: get all top-level gitignored items
-      const skipRe = /^\.(claude|venv|pythonenv|idea|vscode|DS_Store)|^(bin|lib|__pycache__)$/
+      // Fallback: get all top-level gitignored items. Skip `.worktrees`
+      // explicitly — symlinking it into the new worktree would create a
+      // recursive self-reference, and it's never something the worktree
+      // actually needs.
+      const skipRe = /^\.(claude|venv|pythonenv|idea|vscode|DS_Store|worktrees)$|^(bin|lib|__pycache__)$/
       try {
         const output = await g.raw(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'])
         const seen = new Set<string>()
@@ -61,6 +64,8 @@ async function symlinkGitignoredFiles(
     }
 
     for (const item of items) {
+      // Never symlink the worktrees directory into a worktree — recursive.
+      if (item === '.worktrees' || item === '.worktrees/') continue
       const original = join(rootPath, item)
       const target = join(worktreePath, item)
       if (!existsSync(original) || existsSync(target)) continue
@@ -68,6 +73,76 @@ async function symlinkGitignoredFiles(
       await symlink(original, target)
     }
   } catch { /* non-fatal — worktree still usable, just missing some files */ }
+}
+
+/**
+ * Common build/cache artifacts that should never show up as untracked in a
+ * worktree, regardless of whether the underlying project's .gitignore lists
+ * them. Written to the worktree's per-worktree info/exclude (scoped to that
+ * worktree only — does not touch the committed .gitignore).
+ */
+const WORKTREE_LOCAL_EXCLUDES = [
+  '.worktrees',
+  'node_modules',
+  '.turbo',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.cache',
+  '.parcel-cache',
+  'dist',
+  'build',
+  'out',
+  'target',
+  '.venv',
+  '__pycache__',
+  '*.log',
+  '.DS_Store',
+]
+
+/**
+ * Make sure the project's committed `.gitignore` contains `.worktrees/`. If
+ * the file doesn't exist we create it; if the pattern is missing we append it.
+ * Idempotent — matches any of the common forms (`.worktrees`, `.worktrees/`,
+ * `/.worktrees`, `/.worktrees/`).
+ */
+async function ensureWorktreesIgnored(rootPath: string): Promise<void> {
+  try {
+    const gitignorePath = join(rootPath, '.gitignore')
+    let existing = ''
+    try { existing = await readFile(gitignorePath, 'utf-8') } catch { /* missing → create */ }
+    const lines = existing.split('\n').map(l => l.trim())
+    const hasWorktrees = lines.some(l => /^\/?\.worktrees\/?$/.test(l))
+    if (hasWorktrees) return
+    const needsLeadingNewline = existing.length > 0 && !existing.endsWith('\n')
+    const addition = (needsLeadingNewline ? '\n' : '') + '.worktrees/\n'
+    await writeFile(gitignorePath, existing + addition, 'utf-8')
+  } catch (e) {
+    console.error('[gitHandlers] ensureWorktreesIgnored failed:', e)
+  }
+}
+
+async function writeWorktreeLocalExcludes(
+  worktreePath: string,
+  g: ReturnType<typeof simpleGit>,
+): Promise<void> {
+  try {
+    // Resolve the worktree's own info/exclude path (worktrees have their own)
+    const wtGit = simpleGit(worktreePath)
+    const relPath = (await wtGit.raw(['rev-parse', '--git-path', 'info/exclude'])).trim()
+    if (!relPath) return
+    const excludePath = relPath.startsWith('/') ? relPath : join(worktreePath, relPath)
+    await mkdir(dirname(excludePath), { recursive: true })
+    let existing = ''
+    try { existing = await readFile(excludePath, 'utf-8') } catch { /* new file */ }
+    const existingLines = new Set(existing.split('\n').map(l => l.trim()))
+    const toAdd = WORKTREE_LOCAL_EXCLUDES.filter(p => !existingLines.has(p))
+    if (toAdd.length === 0) return
+    const header = '\n# canvaflow: worktree-local excludes (build/cache artifacts)\n'
+    const addition = (existing.endsWith('\n') || existing === '' ? '' : '\n') + header + toAdd.join('\n') + '\n'
+    await writeFile(excludePath, existing + addition, 'utf-8')
+  } catch { /* non-fatal */ }
+  void g
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +500,11 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
   ipc.handle('git:wt:add', async (_e, rootPath: string, branchName: string, baseBranch?: string): Promise<string> => {
     const g = git(rootPath)
 
+    // Ensure `.worktrees/` is in the project's committed .gitignore before we
+    // create anything inside it — otherwise every worktree directory shows up
+    // as untracked in the project's main branch, which is extremely annoying.
+    await ensureWorktreesIgnored(rootPath)
+
     // Find a unique branch name: append -1, -2, etc. if it already exists
     let finalName = branchName
     let suffix = 1
@@ -446,6 +526,11 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
 
     // Symlink gitignored files so the worktree is runnable immediately
     await symlinkGitignoredFiles(rootPath, worktreePath, g)
+
+    // Add common build/cache patterns to this worktree's info/exclude so that
+    // things like .turbo or a re-created node_modules never show up as
+    // untracked when the user installs packages inside the worktree.
+    await writeWorktreeLocalExcludes(worktreePath, g)
 
     return worktreePath
   })

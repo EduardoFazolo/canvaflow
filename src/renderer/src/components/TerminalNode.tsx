@@ -7,6 +7,7 @@ import { NodeData } from '../stores/nodeStore'
 import { BaseNode } from './BaseNode'
 import { useNodeStore } from '../stores/nodeStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
+import { getActiveCwd } from '../stores/viewStore'
 import { registerTerminal, unregisterTerminal } from '../terminalRegistry'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useActivityStore } from '../stores/activityStore'
@@ -253,7 +254,10 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     // which races with Claude's banner draw and produces literal escape-
     // sequence artifacts (^[[?1;2c, ^[[O). Spawning at the right size from
     // the start avoids the race entirely.
-    const cwd = (node.props.cwd as string) || ''
+    // Resolve cwd. Fall back to the active view/workspace path if the node
+    // has none — otherwise pty.ts would drop the terminal in $HOME, which
+    // triggers Claude Code's "trust this folder?" dialog for every spawn.
+    const cwd = (node.props.cwd as string) || getActiveCwd()
     const shell = (node.props.shell as string) || appSettings.shell
     window.terminal.create(node.id, workspaceId, cwd, shell, term.cols, term.rows)
 

@@ -1,5 +1,20 @@
 import { create } from 'zustand'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
+import { getActiveWorkspace } from './workspaceStore'
+
+/**
+ * Resolve the cwd that new nodes should start in. When the active tab is a
+ * worktree canvas, new terminals/claude nodes must start inside the worktree
+ * path — not the workspace root — otherwise every spawn lands in the wrong
+ * directory (or worse, falls back to $HOME) and Claude's trust dialog fires
+ * on every new agent.
+ */
+export const getActiveCwd = (): string => {
+  const { instances, activeId } = useViewStore.getState()
+  const view = instances.find((i) => i.id === activeId)
+  if (view?.worktreePath) return view.worktreePath
+  return getActiveWorkspace()?.path || ''
+}
 
 let viewSaveTimer: ReturnType<typeof setTimeout> | null = null
 
