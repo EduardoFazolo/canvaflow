@@ -1,126 +1,66 @@
-import React, { useEffect, useRef } from 'react'
-import { Application, Graphics } from 'pixi.js'
+import React, { useMemo } from 'react'
 import { Camera } from '../stores/cameraStore'
 
 interface Props {
   camera: Camera
 }
 
+/**
+ * The canvas background dot grid.
+ *
+ * Deliberately rendered as a single CSS-backed <div> using a tiled
+ * radial-gradient — NOT a WebGL/pixi canvas. This is intentional:
+ *
+ *   - There is no texture, image, context, or GPU resource that can get lost,
+ *     fail to initialize, or render as a "broken image" icon on context loss.
+ *   - It's literally a background-color + background-image on a div. The
+ *     browser's own CSS engine guarantees it always paints.
+ *   - Zero allocations, zero frames of latency — pan/zoom updates are just
+ *     style prop changes, which the compositor handles for free.
+ *
+ * If you're tempted to rewrite this using pixi, canvas2d, or any other
+ * imperative drawing API to get "nicer" dots: don't. The previous version
+ * did exactly that and broke in the wild when the WebGL context was dropped
+ * (GPU sleep, driver glitch, window re-parenting). The grid is decorative —
+ * robustness beats pixel-perfection here.
+ */
 export function GridRenderer({ camera }: Props): React.ReactElement {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const appRef = useRef<Application | null>(null)
-  const gridRef = useRef<Graphics | null>(null)
-  const cameraRef = useRef(camera)
-  cameraRef.current = camera
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    const container = containerRef.current
-    let cancelled = false
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null
-
-    const app = new Application()
-    const w = container.offsetWidth || window.innerWidth
-    const h = container.offsetHeight || window.innerHeight
-
-    app.init({
-      width: w,
-      height: h,
-      backgroundColor: 0x0d0d0d,
-      antialias: false,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-    }).then(() => {
-      if (cancelled) { try { app.destroy(true) } catch {} return }
-
-      const canvas = app.canvas as HTMLCanvasElement
-      canvas.style.position = 'absolute'
-      canvas.style.inset = '0'
-      canvas.style.width = '100%'
-      canvas.style.height = '100%'
-      canvas.style.pointerEvents = 'none'
-      container.appendChild(canvas)
-
-      const grid = new Graphics()
-      app.stage.addChild(grid)
-      gridRef.current = grid
-      appRef.current = app
-
-      drawGrid(grid, app.screen.width, app.screen.height, cameraRef.current)
-
-      // Resize PixiJS after the sidebar animation finishes (200ms CSS transition).
-      // Debounced to 250ms so we don't resize on every intermediate frame, which
-      // would cause a black flash during the animation.
-      // After resize(), autoDensity resets canvas CSS to fixed px — re-apply 100%.
-      const observer = new ResizeObserver((entries) => {
-        const entry = entries[0]
-        if (!entry) return
-        const { width, height } = entry.contentRect
-        if (width < 1 || height < 1) return
-        if (resizeTimer) clearTimeout(resizeTimer)
-        resizeTimer = setTimeout(() => {
-          resizeTimer = null
-          if (!appRef.current || !gridRef.current) return
-          appRef.current.renderer.resize(width, height)
-          const c = appRef.current.canvas as HTMLCanvasElement
-          c.style.width = '100%'
-          c.style.height = '100%'
-          drawGrid(gridRef.current, appRef.current.screen.width, appRef.current.screen.height, cameraRef.current)
-        }, 250)
-      })
-      observer.observe(container)
-      ;(container as any).__gridObserver = observer
-    })
-
-    return () => {
-      cancelled = true
-      if (resizeTimer) clearTimeout(resizeTimer)
-      const obs = (container as any).__gridObserver as ResizeObserver | undefined
-      if (obs) { obs.disconnect(); delete (container as any).__gridObserver }
-      if (appRef.current) {
-        try { appRef.current.destroy(true) } catch {}
-        appRef.current = null
-        gridRef.current = null
+  const style = useMemo<React.CSSProperties>(() => {
+    const zoom = camera.zoom
+    if (!zoom || !isFinite(zoom) || zoom <= 0) {
+      // Degenerate camera — just paint the base color, no grid.
+      return {
+        position: 'absolute',
+        inset: 0,
+        background: '#0d0d0d',
+        pointerEvents: 'none',
       }
     }
-  }, [])
 
-  useEffect(() => {
-    if (!appRef.current || !gridRef.current) return
-    const app = appRef.current
-    const grid = gridRef.current
-    drawGrid(grid, app.screen.width, app.screen.height, camera)
-  }, [camera])
+    // Pick a grid step (in world units) such that the screen-space spacing
+    // stays within a readable 20–120 px range regardless of zoom level.
+    const baseSize = 40
+    let step = baseSize
+    while (step * zoom < 20) step *= 4
+    while (step * zoom > 120) step /= 2
 
-  return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-}
+    const stepPx = step * zoom
+    const offsetX = (((camera.x % stepPx) + stepPx) % stepPx)
+    const offsetY = (((camera.y % stepPx) + stepPx) % stepPx)
 
-// pixi.js v8 drawing API: build path with g.circle(), then g.fill()
-function drawGrid(g: Graphics, width: number, height: number, camera: Camera) {
-  g.clear()
-
-  const baseSize = 40
-  const zoom = camera.zoom
-  if (!zoom || !isFinite(zoom)) return
-
-  let step = baseSize
-  while (step * zoom < 20) step *= 4
-  while (step * zoom > 120) step /= 2
-
-  const dotRadius = zoom > 0.5 ? 1 : 0.5
-
-  const offsetX = ((camera.x % (step * zoom)) + step * zoom) % (step * zoom)
-  const offsetY = ((camera.y % (step * zoom)) + step * zoom) % (step * zoom)
-
-  const cols = Math.ceil(width / (step * zoom)) + 2
-  const rows = Math.ceil(height / (step * zoom)) + 2
-
-  for (let col = 0; col < cols; col++) {
-    for (let row = 0; row < rows; row++) {
-      const x = offsetX + col * step * zoom - step * zoom
-      const y = offsetY + row * step * zoom - step * zoom
-      g.circle(x, y, dotRadius)
+    // A 1px dot centered in each tile, fading to transparent by ~1.5px.
+    // The fade softens aliasing without needing antialiased canvas drawing.
+    return {
+      position: 'absolute',
+      inset: 0,
+      backgroundColor: '#0d0d0d',
+      backgroundImage:
+        'radial-gradient(circle, rgba(68,68,68,1) 1px, transparent 1.5px)',
+      backgroundSize: `${stepPx}px ${stepPx}px`,
+      backgroundPosition: `${offsetX}px ${offsetY}px`,
+      pointerEvents: 'none',
     }
-  }
-  g.fill({ color: 0x444444 })
+  }, [camera.x, camera.y, camera.zoom])
+
+  return <div style={style} />
 }
