@@ -31,7 +31,7 @@ export function GridRenderer({ camera }: Props): React.ReactElement {
       // Degenerate camera — just paint the base color, no grid.
       return {
         position: 'absolute',
-        inset: 0,
+        inset: -200,
         background: '#0d0d0d',
         pointerEvents: 'none',
       }
@@ -52,7 +52,7 @@ export function GridRenderer({ camera }: Props): React.ReactElement {
     // The fade softens aliasing without needing antialiased canvas drawing.
     return {
       position: 'absolute',
-      inset: 0,
+      inset: -200,
       backgroundColor: '#0d0d0d',
       backgroundImage:
         'radial-gradient(circle, rgba(68,68,68,1) 1px, transparent 1.5px)',

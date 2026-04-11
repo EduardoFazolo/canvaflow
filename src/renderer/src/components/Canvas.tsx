@@ -4,7 +4,6 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useNodeStore } from '../stores/nodeStore'
 import { zoomFitNode, zoomExit } from '../utils/zoomFocus'
 import { notifyCanvasInteractionEnd, notifyCanvasInteractionStart } from '../utils/canvasInteraction'
-import { GridRenderer } from './GridRenderer'
 import { CanvasOverlay } from './CanvasOverlay'
 import { NodeLayer } from './NodeLayer'
 import { ConnectionLayer } from './ConnectionLayer'
@@ -305,7 +304,6 @@ export function Canvas(): React.ReactElement {
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        <GridRenderer camera={camera} />
         <CanvasOverlay camera={camera}>
           <ClusterLayer />
           <ConnectionLayer />
