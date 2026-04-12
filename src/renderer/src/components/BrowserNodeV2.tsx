@@ -934,43 +934,85 @@ export function BrowserNodeV2({ node }: Props): React.ReactElement {
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   {isLovable && (
-                    <button
-                      title="Open Claude agent for this Lovable project"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={async () => {
-                        const sessionDir = await window.lovable.createSessionDir()
-                        useNodeStore.getState().add('claude', node.x + node.width + 16, node.y, {
-                          cwd: sessionDir,
-                          connectedNodeId: node.id,
-                        })
-                      }}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        padding: '0 6px', height: 18, borderRadius: 3,
-                        background: 'rgba(251,146,60,0.1)',
-                        border: '1px solid rgba(251,146,60,0.25)',
-                        color: 'rgba(251,146,60,0.8)',
-                        fontSize: 10, fontWeight: 500,
-                        cursor: 'pointer', flexShrink: 0, userSelect: 'none',
-                      }}
-                      onMouseEnter={(e) => {
-                        Object.assign((e.currentTarget as HTMLElement).style, {
-                          background: 'rgba(251,146,60,0.18)',
-                          borderColor: 'rgba(251,146,60,0.45)',
-                        })
-                      }}
-                      onMouseLeave={(e) => {
-                        Object.assign((e.currentTarget as HTMLElement).style, {
+                    <>
+                      <button
+                        title="Open Claude agent for this Lovable project"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={async () => {
+                          const sessionDir = await window.lovable.createSessionDir()
+                          useNodeStore.getState().add('claude', node.x + node.width + 16, node.y, {
+                            cwd: sessionDir,
+                            connectedNodeId: node.id,
+                          })
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 4,
+                          padding: '0 6px', height: 18, borderRadius: 3,
                           background: 'rgba(251,146,60,0.1)',
-                          borderColor: 'rgba(251,146,60,0.25)',
-                        })
-                      }}
-                    >
-                      <svg width="8" height="10" viewBox="0 0 10 13" fill="none">
-                        <path d="M5 0.5C5 0.5 2 4 2 6.5C2 8.43 3.57 10 5.5 10C7.43 10 9 8.43 9 6.5C9 5.2 8.3 4.1 7.3 3.5C7.3 3.5 7 5 5.8 5.6C5.8 5.6 6.5 3 5 0.5Z" fill="currentColor"/>
-                      </svg>
-                      Lovable
-                    </button>
+                          border: '1px solid rgba(251,146,60,0.25)',
+                          color: 'rgba(251,146,60,0.8)',
+                          fontSize: 10, fontWeight: 500,
+                          cursor: 'pointer', flexShrink: 0, userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => {
+                          Object.assign((e.currentTarget as HTMLElement).style, {
+                            background: 'rgba(251,146,60,0.18)',
+                            borderColor: 'rgba(251,146,60,0.45)',
+                          })
+                        }}
+                        onMouseLeave={(e) => {
+                          Object.assign((e.currentTarget as HTMLElement).style, {
+                            background: 'rgba(251,146,60,0.1)',
+                            borderColor: 'rgba(251,146,60,0.25)',
+                          })
+                        }}
+                      >
+                        <svg width="8" height="10" viewBox="0 0 10 13" fill="none">
+                          <path d="M5 0.5C5 0.5 2 4 2 6.5C2 8.43 3.57 10 5.5 10C7.43 10 9 8.43 9 6.5C9 5.2 8.3 4.1 7.3 3.5C7.3 3.5 7 5 5.8 5.6C5.8 5.6 6.5 3 5 0.5Z" fill="currentColor"/>
+                        </svg>
+                        Claude
+                      </button>
+                      <button
+                        title="Open Codex agent for this Lovable project"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={async () => {
+                          const sessionDir = await window.lovable.createSessionDir()
+                          useNodeStore.getState().add('codex', node.x + node.width + 16, node.y + 28, {
+                            cwd: sessionDir,
+                            connectedNodeId: node.id,
+                          })
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 4,
+                          padding: '0 6px', height: 18, borderRadius: 3,
+                          background: 'rgba(45,212,191,0.1)',
+                          border: '1px solid rgba(45,212,191,0.25)',
+                          color: 'rgba(45,212,191,0.82)',
+                          fontSize: 10, fontWeight: 500,
+                          cursor: 'pointer', flexShrink: 0, userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => {
+                          Object.assign((e.currentTarget as HTMLElement).style, {
+                            background: 'rgba(45,212,191,0.18)',
+                            borderColor: 'rgba(45,212,191,0.45)',
+                          })
+                        }}
+                        onMouseLeave={(e) => {
+                          Object.assign((e.currentTarget as HTMLElement).style, {
+                            background: 'rgba(45,212,191,0.1)',
+                            borderColor: 'rgba(45,212,191,0.25)',
+                          })
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 20 20" fill="none">
+                          <rect x="3.25" y="3.25" width="13.5" height="13.5" rx="3.5" stroke="currentColor" strokeWidth="1.5"/>
+                          <circle cx="7.2" cy="8" r="0.9" fill="currentColor"/>
+                          <circle cx="12.8" cy="8" r="0.9" fill="currentColor"/>
+                          <path d="M7 12.2c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                        </svg>
+                        Codex
+                      </button>
+                    </>
                   )}
                   {gh && (
                     <div

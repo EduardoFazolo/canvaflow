@@ -35,6 +35,12 @@ const icons: Record<string, React.ReactElement> = {
       <path d="M2 12l10 5 10-5" />
     </svg>
   ),
+  codex: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="M9 9h.01M15 9h.01M8 14c1.2 1.33 2.67 2 4 2s2.8-.67 4-2" />
+    </svg>
+  ),
 }
 
 interface Props {

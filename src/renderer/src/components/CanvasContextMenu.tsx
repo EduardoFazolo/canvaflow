@@ -67,6 +67,13 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
           <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧C</span>
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
+          const cwd = getActiveCwd()
+          addAndFocus('codex', 350, 240, { cwd })
+        }}>
+          <span style={{ flex: 1 }}>New Codex</span>
+          <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧X</span>
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => {
           const rootPath = getActiveCwd()
           addAndFocus('monaco', 500, 320, { rootPath })
         }}>

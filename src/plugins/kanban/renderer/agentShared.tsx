@@ -9,7 +9,7 @@ import type { KanbanCard } from '../store'
 // Shared agent definitions (used by WorktreeStartModal, AgentActionModal, etc.)
 // ---------------------------------------------------------------------------
 
-export type AgentId = 'orchestrate' | 'claude'
+export type AgentId = 'orchestrate' | 'claude' | 'codex'
 
 export const AGENT_OPTIONS: { id: AgentId; label: string; icon: React.ReactElement }[] = [
   {
@@ -32,6 +32,18 @@ export const AGENT_OPTIONS: { id: AgentId; label: string; icon: React.ReactEleme
     icon: (
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
         <path d="M10 2l2.5 5.5L18 10l-5.5 2.5L10 18l-2.5-5.5L2 10l5.5-2.5L10 2z" fill="currentColor"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <rect x="3.25" y="3.25" width="13.5" height="13.5" rx="3.5" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="7.2" cy="8" r="0.9" fill="currentColor"/>
+        <circle cx="12.8" cy="8" r="0.9" fill="currentColor"/>
+        <path d="M7 12.2c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
       </svg>
     ),
   },
@@ -63,12 +75,37 @@ export function AgentPickerButtons({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {AGENT_OPTIONS.map((agent) => {
           const isOrch = agent.id === 'orchestrate'
-          const borderColor = isOrch ? 'rgba(52,211,153,0.25)' : 'rgba(34,211,238,0.25)'
-          const bgColor = isOrch ? 'rgba(52,211,153,0.07)' : 'rgba(34,211,238,0.08)'
-          const borderHover = isOrch ? 'rgba(52,211,153,0.45)' : 'rgba(34,211,238,0.45)'
-          const bgHover = isOrch ? 'rgba(52,211,153,0.14)' : 'rgba(34,211,238,0.15)'
-          const iconColor = isOrch ? 'rgba(52,211,153,0.9)' : 'rgba(34,211,238,0.9)'
-          const iconBg = isOrch ? 'rgba(52,211,153,0.15)' : 'rgba(34,211,238,0.15)'
+          const isCodex = agent.id === 'codex'
+          const borderColor = isOrch
+            ? 'rgba(52,211,153,0.25)'
+            : isCodex
+              ? 'rgba(45,212,191,0.28)'
+              : 'rgba(34,211,238,0.25)'
+          const bgColor = isOrch
+            ? 'rgba(52,211,153,0.07)'
+            : isCodex
+              ? 'rgba(45,212,191,0.08)'
+              : 'rgba(34,211,238,0.08)'
+          const borderHover = isOrch
+            ? 'rgba(52,211,153,0.45)'
+            : isCodex
+              ? 'rgba(45,212,191,0.48)'
+              : 'rgba(34,211,238,0.45)'
+          const bgHover = isOrch
+            ? 'rgba(52,211,153,0.14)'
+            : isCodex
+              ? 'rgba(45,212,191,0.15)'
+              : 'rgba(34,211,238,0.15)'
+          const iconColor = isOrch
+            ? 'rgba(52,211,153,0.9)'
+            : isCodex
+              ? 'rgba(45,212,191,0.92)'
+              : 'rgba(34,211,238,0.9)'
+          const iconBg = isOrch
+            ? 'rgba(52,211,153,0.15)'
+            : isCodex
+              ? 'rgba(45,212,191,0.15)'
+              : 'rgba(34,211,238,0.15)'
           const isDisabled = loading || disabled
           return (
             <button
@@ -251,6 +288,17 @@ function findFreePosition(canvasId: string, nodeWidth: number, nodeHeight: numbe
 /** Role tags for indexed agent lookup. Add new roles here as needed. */
 export type AgentRole = 'main' | 'reviewer'
 
+function shellEscape(value: string): string {
+  return value.replace(/'/g, "'\\''")
+}
+
+function buildCodexFlags(prompt: string): string {
+  return [
+    '--dangerously-bypass-approvals-and-sandbox',
+    `'${shellEscape(prompt)}'`,
+  ].join(' ')
+}
+
 /** Persist a role tag to node_metadata + update the in-memory node. */
 function persistAgentRole(nodeId: string, role: AgentRole): void {
   // Update the in-memory store immediately for fast lookup
@@ -302,6 +350,14 @@ export function spawnAgent(opts: {
       worldY: pos.y,
       workspacePath: worktreePath,
     })
+  } else if (agentId === 'codex') {
+    const pos = findFreePosition(viewKey, 700, 480)
+    const newNode = useNodeStore.getState().addToCanvas(viewKey, 'codex', pos.x, pos.y, {
+      cwd: worktreePath,
+      codexFlags: buildCodexFlags(prompt),
+    })
+    if (view) viewStore.updateAgentStatus(view.id, 'idle', newNode.id)
+    if (role) persistAgentRole(newNode.id, role)
   }
 }
 
@@ -309,7 +365,7 @@ export function spawnAgent(opts: {
 // Agent role queries — find indexed agents on a canvas
 // ---------------------------------------------------------------------------
 
-/** Get all claude/orchestrator nodes on a canvas (excludes orchestrator subagents). */
+/** Get all top-level agent nodes on a canvas (excludes orchestrator subagents). */
 function getAgentNodesOnCanvas(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
   const nodeMap = useNodeStore.getState().workspaceNodes.get(canvasId)
   if (!nodeMap) return []
@@ -322,7 +378,7 @@ function getAgentNodesOnCanvas(canvasId: string): import('../../../renderer/src/
     }
   }
   return Array.from(nodeMap.values()).filter((n) =>
-    (n.type === 'claude' || n.type === 'orchestrator') && !subagentIds.has(n.id)
+    (n.type === 'claude' || n.type === 'codex' || n.type === 'orchestrator') && !subagentIds.has(n.id)
   )
 }
 
@@ -356,21 +412,22 @@ export function findReviewerAgents(canvasId: string): import('../../../renderer/
 }
 
 /**
- * All claude agents on a canvas — used to populate the agent picker in the
+ * All standalone agents on a canvas — used to populate the agent picker in the
  * code review view. Sorted by createdAt (oldest first) so the picker is
  * stable across renders.
  */
-export function findAllClaudeAgentsOnCanvas(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
+export function findAllAgentsOnCanvas(canvasId: string): import('../../../renderer/src/stores/nodeStore').NodeData[] {
   return getAgentNodesOnCanvas(canvasId)
-    .filter((n) => n.type === 'claude')
+    .filter((n) => n.type === 'claude' || n.type === 'codex')
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
 }
 
 /** Human-friendly label for an agent node, used in the picker dropdown. */
 export function agentLabel(node: import('../../../renderer/src/stores/nodeStore').NodeData): string {
-  if (node.agentRole === 'main') return 'Claude (main)'
-  if (node.agentRole === 'reviewer') return 'Claude (reviewer)'
-  return `Claude (${node.id.slice(0, 6)})`
+  const kind = node.type === 'codex' ? 'Codex' : node.type === 'orchestrator' ? 'Orchestrator' : 'Claude'
+  if (node.agentRole === 'main') return `${kind} (main)`
+  if (node.agentRole === 'reviewer') return `${kind} (reviewer)`
+  return `${kind} (${node.id.slice(0, 6)})`
 }
 
 /**
@@ -381,12 +438,12 @@ export function agentLabel(node: import('../../../renderer/src/stores/nodeStore'
  * Conventions:
  *   - role 'main'     → `main`
  *   - role 'reviewer' → `reviewer`
- *   - untagged claude → `claude-<6-char-id>` (uses lowercased node id prefix)
+ *   - untagged agent → `<type>-<6-char-id>` (uses lowercased node id prefix)
  */
 export function agentSlug(node: import('../../../renderer/src/stores/nodeStore').NodeData): string {
   if (node.agentRole === 'main') return 'main'
   if (node.agentRole === 'reviewer') return 'reviewer'
-  return `claude-${node.id.slice(0, 6).toLowerCase()}`
+  return `${node.type}-${node.id.slice(0, 6).toLowerCase()}`
 }
 
 /**

@@ -7,6 +7,7 @@ import { switchCanvas } from '../../stores/canvasManager'
 import { zoomFitNode } from '../../utils/zoomFocus'
 import {
   MENTION_REGEX,
+  agentLabel,
   resolveAgentFromSlug,
 } from '../../../../plugins/kanban/renderer/agentShared'
 import { InlineMarkdown } from './InlineMarkdown'
@@ -53,7 +54,7 @@ function jumpToAgent(nodeId: string): boolean {
 }
 
 /**
- * Every agent-authored message carries the `authorNodeId` of the claude node
+ * Every agent-authored message carries the `authorNodeId` of the agent node
  * that produced it (stamped server-side by the MCP server from its
  * `CANVAFLOW_NODE_ID` env var). That id is the single source of truth for
  * "which agent on which canvas?" — no name or role matching needed.
@@ -253,8 +254,8 @@ export function ThreadCard({
       ...thread,
       messages: [...thread.messages, userMsg],
     }
-    const prompt = buildSingleThreadPrompt({ branchName, thread: updatedThread })
     for (const agent of mentioned) {
+      const prompt = buildSingleThreadPrompt({ branchName, thread: updatedThread, agent })
       dispatchToAgent(agent.id, prompt)
     }
   }, [reply, thread, branchName, agents, appendMessage])
@@ -302,7 +303,7 @@ export function ThreadCard({
               padding: '0 4px',
               borderRadius: 3,
               fontFamily: 'ui-monospace, monospace',
-            }}>@main</code> to route to an agent · ⌘↵ to post
+            }}>@main</code> to route to {agents[0] ? agentLabel(agents[0]).split(' ')[0] : 'an'} agent · ⌘↵ to post
           </span>
 
           <div style={{ flex: 1 }} />

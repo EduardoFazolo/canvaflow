@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useViewStore } from '../stores/viewStore'
 import { useReviewStore } from '../stores/reviewStore'
 import { useNodeStore } from '../stores/nodeStore'
-import { spawnAgent, findAllClaudeAgentsOnCanvas } from '../../../plugins/kanban/renderer/agentShared'
+import { spawnAgent, findAllAgentsOnCanvas } from '../../../plugins/kanban/renderer/agentShared'
 import { switchCanvas } from '../stores/canvasManager'
 import type { ReviewThread } from '../../../modules/servers/canvaflow_mcp/shared/types'
 import { FileDiffView } from './codeReview/FileDiffView'
@@ -52,14 +52,14 @@ export function CodeReviewView(): React.ReactElement {
   )
   const clearReview = useReviewStore((s) => s.clearReview)
 
-  // Find all claude agents on the worktree canvas. Subscribe to workspaceNodes
+  // Find all standalone agents on the worktree canvas. Subscribe to workspaceNodes
   // so the picker re-renders when agents are spawned/removed mid-review.
   const workspaceNodes = useNodeStore((s) => s.workspaceNodes)
   const branchCanvasView = useViewStore((s) =>
     s.instances.find((i) => i.type === 'canvas' && i.worktreePath === worktreePath)
   )
   const agents = React.useMemo(
-    () => branchCanvasView ? findAllClaudeAgentsOnCanvas(branchCanvasView.id) : [],
+    () => branchCanvasView ? findAllAgentsOnCanvas(branchCanvasView.id) : [],
     [branchCanvasView, workspaceNodes],
   )
 

@@ -4,7 +4,7 @@ import { logAgentDebug } from '../../../modules/servers/agentic_signals/shared/d
 import { useActivationStore } from './activationStore'
 import type { AgentStatus } from '../../../modules/servers/agentic_signals/shared/types'
 
-export type NodeType = 'terminal' | 'browser' | 'browserv2' | 'note' | 'files' | 'notion' | 'trello' | 'claude' | 'monaco' | 'orchestrator' | 'subagent' | 'windowpicker' | 'kanban'
+export type NodeType = 'terminal' | 'browser' | 'browserv2' | 'note' | 'files' | 'notion' | 'trello' | 'claude' | 'codex' | 'monaco' | 'orchestrator' | 'subagent' | 'windowpicker' | 'kanban'
 
 export interface NodeData {
   id: string
@@ -80,6 +80,7 @@ const DEFAULT_SIZES: Record<NodeType, { width: number; height: number }> = {
   notion: { width: 900, height: 700 },
   trello: { width: 900, height: 700 },
   claude: { width: 700, height: 480 },
+  codex: { width: 700, height: 480 },
   monaco: { width: 1000, height: 640 },
   orchestrator: { width: 520, height: 500 },
   subagent: { width: 460, height: 180 },
@@ -96,6 +97,7 @@ const DEFAULT_TITLES: Record<NodeType, string> = {
   notion: 'Notion',
   trello: 'Trello',
   claude: 'Claude',
+  codex: 'Codex',
   monaco: 'Untitled',
   orchestrator: 'Orchestrator',
   subagent: 'Sub-agent',
@@ -368,7 +370,7 @@ export const freshlySpawnedAgentNodes = new Set<string>()
 // no-ops because the node is already tagged.
 // ---------------------------------------------------------------------------
 function maybeAutoTagAsMain(nodeId: string, canvasId: string, type: NodeType): void {
-  if (type !== 'claude' && type !== 'orchestrator') return
+  if (type !== 'claude' && type !== 'codex' && type !== 'orchestrator') return
   setTimeout(() => {
     const store = useNodeStore.getState()
     const canvasNodes = store.workspaceNodes.get(canvasId)

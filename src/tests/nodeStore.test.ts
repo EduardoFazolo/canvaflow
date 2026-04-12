@@ -8,6 +8,7 @@ const DEFAULT_SIZES: Record<NodeType, { width: number; height: number }> = {
   note: { width: 300, height: 200 },
   files: { width: 700, height: 480 },
   notion: { width: 900, height: 700 },
+  codex: { width: 700, height: 480 },
 }
 
 beforeEach(() => {

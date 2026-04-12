@@ -53,6 +53,18 @@ const AGENTS: Agent[] = [
     ),
   },
   {
+    id: 'codex',
+    label: 'Codex',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+        <rect x="3.25" y="3.25" width="13.5" height="13.5" rx="3.5" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="7.2" cy="8" r="0.9" fill="currentColor"/>
+        <circle cx="12.8" cy="8" r="0.9" fill="currentColor"/>
+        <path d="M7 12.2c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
+  {
     id: 'note',
     label: 'Note',
     icon: (
@@ -166,17 +178,18 @@ export function TaskDropModal({ sourceLabel, payload, onStartAgent, onClose }: P
       return
     }
 
-    if (agentId !== 'claude') return
+    if (agentId !== 'claude' && agentId !== 'codex') return
     setLoading(true)
     try {
       if (ctx.autoBranch && cwd) await window.git.checkoutBranch(cwd, branchName, true)
-      const newNode = useNodeStore.getState().add('claude', wx - 350, wy - 240, { cwd })
+      const nodeType = agentId === 'codex' ? 'codex' : 'claude'
+      const newNode = useNodeStore.getState().add(nodeType, wx - 350, wy - 240, { cwd })
       const nodeId = newNode.id
       const capturedText = text
       setTimeout(() => { window.terminal.write(nodeId, capturedText + '\n') }, 1500)
       onClose()
     } catch (e) {
-      console.error('[TaskDropModal] claude error:', e)
+      console.error(`[TaskDropModal] ${agentId} error:`, e)
     } finally {
       setLoading(false)
     }
@@ -281,13 +294,50 @@ export function TaskDropModal({ sourceLabel, payload, onStartAgent, onClose }: P
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {AGENTS.map((agent) => {
               const isOrchestrate = agent.id === 'orchestrate'
-              const isPrimary = agent.id === 'claude'
-              const borderColor = isOrchestrate ? 'rgba(52,211,153,0.25)' : isPrimary ? 'rgba(167,139,250,0.25)' : 'rgba(255,255,255,0.08)'
-              const bgColor = isOrchestrate ? 'rgba(52,211,153,0.07)' : isPrimary ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.04)'
-              const borderHover = isOrchestrate ? 'rgba(52,211,153,0.45)' : isPrimary ? 'rgba(167,139,250,0.45)' : 'rgba(255,255,255,0.15)'
-              const bgHover = isOrchestrate ? 'rgba(52,211,153,0.14)' : isPrimary ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.07)'
-              const iconColor = isOrchestrate ? 'rgba(52,211,153,0.9)' : isPrimary ? 'rgba(167,139,250,0.9)' : 'rgba(255,255,255,0.45)'
-              const iconBg = isOrchestrate ? 'rgba(52,211,153,0.15)' : isPrimary ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.07)'
+              const isClaude = agent.id === 'claude'
+              const isCodex = agent.id === 'codex'
+              const borderColor = isOrchestrate
+                ? 'rgba(52,211,153,0.25)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.25)'
+                  : isCodex
+                    ? 'rgba(34,197,180,0.28)'
+                    : 'rgba(255,255,255,0.08)'
+              const bgColor = isOrchestrate
+                ? 'rgba(52,211,153,0.07)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.08)'
+                  : isCodex
+                    ? 'rgba(34,197,180,0.08)'
+                    : 'rgba(255,255,255,0.04)'
+              const borderHover = isOrchestrate
+                ? 'rgba(52,211,153,0.45)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.45)'
+                  : isCodex
+                    ? 'rgba(34,197,180,0.48)'
+                    : 'rgba(255,255,255,0.15)'
+              const bgHover = isOrchestrate
+                ? 'rgba(52,211,153,0.14)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.15)'
+                  : isCodex
+                    ? 'rgba(34,197,180,0.15)'
+                    : 'rgba(255,255,255,0.07)'
+              const iconColor = isOrchestrate
+                ? 'rgba(52,211,153,0.9)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.9)'
+                  : isCodex
+                    ? 'rgba(45,212,191,0.92)'
+                    : 'rgba(255,255,255,0.45)'
+              const iconBg = isOrchestrate
+                ? 'rgba(52,211,153,0.15)'
+                : isClaude
+                  ? 'rgba(167,139,250,0.15)'
+                  : isCodex
+                    ? 'rgba(34,197,180,0.15)'
+                    : 'rgba(255,255,255,0.07)'
               return (
                 <button
                   key={agent.id}

@@ -238,13 +238,13 @@ export function TerminalNode({ node }: Props): React.ReactElement {
 
     // Restore previous scrollback from SQLite (written before tmux output starts).
     //
-    // For agent nodes (claude, orchestrator) we deliberately skip this: the agent
+    // For agent nodes (claude, codex, orchestrator) we deliberately skip this: the agent
     // process redraws its own banner on startup, and overlaying the previous visual
     // snapshot causes literal escape-sequence artifacts and double banners. The
     // conversation history itself is preserved via `claude --resume <sessionId>`,
     // which is what actually matters to the user.
     const savedState = node.props.serializedState as string | undefined
-    const isAgentNode = node.type === 'claude' || node.type === 'orchestrator'
+    const isAgentNode = node.type === 'claude' || node.type === 'codex' || node.type === 'orchestrator'
     if (savedState && !isAgentNode) {
       term.write(savedState, () => term.scrollToBottom())
     }

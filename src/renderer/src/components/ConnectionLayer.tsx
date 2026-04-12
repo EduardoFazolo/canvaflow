@@ -4,8 +4,13 @@ import { useNodeStore, NodeData } from '../stores/nodeStore'
 const TITLE_H = 32
 
 interface Connection {
-  claudeNode: NodeData   // node that owns connectedNodeId
+  agentNode: NodeData    // node that owns connectedNodeId
   lovableNode: NodeData  // the node it is connected to
+}
+
+function agentAccent(node: NodeData): string {
+  if (node.type === 'codex') return '#2dd4bf'
+  return '#a78bfa'
 }
 
 export function ConnectionLayer(): React.ReactElement | null {
@@ -17,7 +22,7 @@ export function ConnectionLayer(): React.ReactElement | null {
     if (!connectedId) continue
     const lovable = nodes.get(connectedId)
     if (!lovable) continue
-    connections.push({ claudeNode: node, lovableNode: lovable })
+    connections.push({ agentNode: node, lovableNode: lovable })
   }
 
   if (connections.length === 0) return null
@@ -44,14 +49,15 @@ export function ConnectionLayer(): React.ReactElement | null {
         `}</style>
       </defs>
 
-      {connections.map(({ claudeNode, lovableNode }) => {
+      {connections.map(({ agentNode, lovableNode }) => {
+        const accent = agentAccent(agentNode)
         // Right-center of the Lovable browser node
         const x1 = lovableNode.x + lovableNode.width
         const y1 = lovableNode.y + (lovableNode.minimized ? TITLE_H / 2 : lovableNode.height / 2)
 
-        // Left-center of the Claude node
-        const x2 = claudeNode.x
-        const y2 = claudeNode.y + (claudeNode.minimized ? TITLE_H / 2 : claudeNode.height / 2)
+        // Left-center of the connected agent node
+        const x2 = agentNode.x
+        const y2 = agentNode.y + (agentNode.minimized ? TITLE_H / 2 : agentNode.height / 2)
 
         // Horizontal bezier control points
         const span = Math.abs(x2 - x1)
@@ -60,10 +66,10 @@ export function ConnectionLayer(): React.ReactElement | null {
         const cx2 = x2 - pull
 
         const d = `M ${x1} ${y1} C ${cx1} ${y1} ${cx2} ${y2} ${x2} ${y2}`
-        const gradId = `cf-wire-${claudeNode.id}`
+        const gradId = `cf-wire-${agentNode.id}`
 
         return (
-          <g key={claudeNode.id}>
+          <g key={agentNode.id}>
             <defs>
               <linearGradient
                 id={gradId}
@@ -72,7 +78,7 @@ export function ConnectionLayer(): React.ReactElement | null {
                 gradientUnits="userSpaceOnUse"
               >
                 <stop offset="0%"   stopColor="#fb923c" />
-                <stop offset="100%" stopColor="#a78bfa" />
+                <stop offset="100%" stopColor={accent} />
               </linearGradient>
             </defs>
 
@@ -109,9 +115,9 @@ export function ConnectionLayer(): React.ReactElement | null {
             <circle cx={x1} cy={y1} r={3} fill="#fb923c" opacity={0.7} />
             <circle cx={x1} cy={y1} r={5.5} fill="none" stroke="#fb923c" strokeWidth={1} opacity={0.25} />
 
-            {/* Target dot (Claude / purple) */}
-            <circle cx={x2} cy={y2} r={3} fill="#a78bfa" opacity={0.7} />
-            <circle cx={x2} cy={y2} r={5.5} fill="none" stroke="#a78bfa" strokeWidth={1} opacity={0.25} />
+            {/* Target dot (agent) */}
+            <circle cx={x2} cy={y2} r={3} fill={accent} opacity={0.7} />
+            <circle cx={x2} cy={y2} r={5.5} fill="none" stroke={accent} strokeWidth={1} opacity={0.25} />
           </g>
         )
       })}

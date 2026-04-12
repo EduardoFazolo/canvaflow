@@ -35,7 +35,7 @@ const btnCloseHover: React.CSSProperties = {
 }
 
 // ---------------------------------------------------------------------------
-// Agent info popover — small "i" button shown on agent nodes (claude/orchestrator)
+// Agent info popover — small "i" button shown on agent nodes.
 // ---------------------------------------------------------------------------
 
 function AgentInfoButton({ node }: { node: NodeData }): React.ReactElement {
@@ -485,8 +485,8 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
 
         {titleExtra}
 
-        {/* Agent info button (claude/orchestrator only) */}
-        {(node.type === 'claude' || node.type === 'orchestrator') && (
+        {/* Agent info button (agent nodes only) */}
+        {(node.type === 'claude' || node.type === 'codex' || node.type === 'orchestrator') && (
           <AgentInfoButton node={node} />
         )}
 

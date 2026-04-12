@@ -47,7 +47,7 @@ export function NotionDropModal({ payload, onClose }: Props): React.ReactElement
       return
     }
 
-    if (agentId === 'claude') {
+    if (agentId === 'claude' || agentId === 'codex') {
       let text = title
       const prepared = getPreparedNotionExternalDrag(partition, pageId)
       if (prepared) {
@@ -59,7 +59,8 @@ export function NotionDropModal({ payload, onClose }: Props): React.ReactElement
         } catch {}
       }
 
-      const newNode = useNodeStore.getState().add('claude', ctx.wx - 350, ctx.wy - 240, { cwd: ctx.cwd })
+      const nodeType = agentId === 'codex' ? 'codex' : 'claude'
+      const newNode = useNodeStore.getState().add(nodeType, ctx.wx - 350, ctx.wy - 240, { cwd: ctx.cwd })
       const nodeId = newNode.id
       const capturedText = text
       setTimeout(() => { window.terminal.write(nodeId, capturedText + '\n') }, 1500)

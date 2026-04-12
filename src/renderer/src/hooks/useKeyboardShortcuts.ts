@@ -48,6 +48,11 @@ export function useKeyboardShortcuts({ onSearch, onSettings }: Options): void {
           addAndFocus('claude', 350, 240, { cwd })
           break
         }
+        case 'newCodex': {
+          const cwd = getActiveCwd()
+          addAndFocus('codex', 350, 240, { cwd })
+          break
+        }
         case 'newEditor': {
           const rootPath = getActiveCwd()
           addAndFocus('monaco', 500, 320, { rootPath })

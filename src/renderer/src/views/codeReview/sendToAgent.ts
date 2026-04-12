@@ -1,4 +1,6 @@
+import { agentLabel } from '../../../../plugins/kanban/renderer/agentShared'
 import type { ReviewThread, ReviewMessage } from '../../../../modules/servers/canvaflow_mcp/shared/types'
+import type { NodeData } from '../../stores/nodeStore'
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -23,8 +25,10 @@ function formatThread(thread: ReviewThread): string {
 export function buildSingleThreadPrompt(opts: {
   branchName: string
   thread: ReviewThread
+  agent: NodeData
 }): string {
-  const { branchName, thread } = opts
+  const { branchName, thread, agent } = opts
+  const authorName = agentLabel(agent)
   return [
     `Code review reply requested. Branch: \`${branchName}\`. File: \`${thread.file}\` line ${thread.line}.`,
     '',
@@ -35,7 +39,7 @@ export function buildSingleThreadPrompt(opts: {
     '- Look at the relevant code if needed.',
     '- Reply by calling the `reply_to_review_thread` MCP tool.',
     `- Use \`thread_id\`: "${thread.id}"`,
-    '- Use `author_name`: "Claude (main)"',
+    `- Use \`author_name\`: "${authorName}"`,
     '',
     'STYLE — be brief. Get to the point in 1-3 short paragraphs at most.',
     'No preamble, no recap of what the reviewer said, no offers to "make the change if you want".',
@@ -51,8 +55,10 @@ export function buildSingleThreadPrompt(opts: {
 export function buildFullReviewPrompt(opts: {
   branchName: string
   threads: ReviewThread[]
+  agent: NodeData
 }): string {
-  const { branchName, threads } = opts
+  const { branchName, threads, agent } = opts
+  const authorName = agentLabel(agent)
   if (threads.length === 0) {
     return `The code review on branch \`${branchName}\` has no comments yet.`
   }
@@ -69,7 +75,7 @@ export function buildFullReviewPrompt(opts: {
     '2. For each thread you want to respond to, call the `reply_to_review_thread` MCP tool with:',
     '   - `thread_id`: the exact ID shown in the thread header above',
     '   - `body`: your reply (markdown supported)',
-    '   - `author_name`: a short label like "Claude (main)" so the user knows who replied',
+    `   - \`author_name\`: use "${authorName}" so the user knows who replied`,
     '3. You may also make code changes to address the findings. Describe what you did in the replies.',
     '4. You do NOT need to reply to every thread — only the ones where you have something useful to add.',
   ].join('\n')
@@ -94,12 +100,12 @@ const BRACKETED_PASTE_CLOSE = '\x1b[201~'
  * boot-time orchestration; we just need to type the message into its prompt.
  *
  * If the agent is idle at its prompt, the input gets typed and submitted.
- * If the agent is busy, claude queues the input — same behavior as if the
+ * If the agent is busy, the CLI queues the input — same behavior as if the
  * user typed while it was working.
  */
 export function dispatchToAgent(nodeId: string, prompt: string): void {
   window.terminal.write(nodeId, BRACKETED_PASTE_OPEN + prompt + BRACKETED_PASTE_CLOSE)
-  // Small delay before the Enter so claude finishes processing the paste
+  // Small delay before the Enter so the CLI finishes processing the paste
   // before receiving the submit signal.
   setTimeout(() => {
     window.terminal.write(nodeId, '\r')

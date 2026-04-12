@@ -10,6 +10,10 @@ function resetNodeStore() {
     focusedNodeId: null,
     selectedNodeIds: new Set(),
   })
+  ;(globalThis as any).window = (globalThis as any).window ?? {}
+  ;(globalThis as any).window.agent = {
+    saveMetadata: () => Promise.resolve(),
+  }
 }
 
 describe('nodeStore.add() cwd injection', () => {
@@ -42,6 +46,14 @@ describe('nodeStore.add() cwd injection', () => {
     expect(node.props.cwd).toBe('/repo/.worktrees/feature')
   })
 
+  it('overrides cwd for codex nodes too', () => {
+    useNodeStore.getState().loadWorkspace('wt-branch-1', new Map())
+    useNodeStore.getState().setWorktreeCwd('/repo/.worktrees/feature')
+
+    const node = useNodeStore.getState().add('codex', 0, 0, { cwd: '/wrong/path' })
+    expect(node.props.cwd).toBe('/repo/.worktrees/feature')
+  })
+
   it('injects cwd even when props has no cwd at all', () => {
     useNodeStore.getState().loadWorkspace('wt-branch-1', new Map())
     useNodeStore.getState().setWorktreeCwd('/repo/.worktrees/feature')
@@ -69,6 +81,20 @@ describe('nodeStore.add() cwd injection', () => {
     })
     expect(node.props.cwd).toBe('/repo/.worktrees/feature')
     expect(node.props.claudeFlags).toBe('--dangerously-skip-permissions')
+    expect(node.props.customProp).toBe('hello')
+  })
+
+  it('preserves codex flags when injecting cwd', () => {
+    useNodeStore.getState().loadWorkspace('wt-branch-1', new Map())
+    useNodeStore.getState().setWorktreeCwd('/repo/.worktrees/feature')
+
+    const node = useNodeStore.getState().add('codex', 0, 0, {
+      cwd: '/wrong',
+      codexFlags: '--dangerously-bypass-approvals-and-sandbox',
+      customProp: 'hello',
+    })
+    expect(node.props.cwd).toBe('/repo/.worktrees/feature')
+    expect(node.props.codexFlags).toBe('--dangerously-bypass-approvals-and-sandbox')
     expect(node.props.customProp).toBe('hello')
   })
 })

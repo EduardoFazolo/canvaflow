@@ -1,4 +1,4 @@
-import { ipcMain, WebContents } from 'electron'
+import { app, ipcMain, WebContents } from 'electron'
 import * as os from 'os'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -56,6 +56,20 @@ function markCwdTrusted(cwd: string): void {
   } catch (e) {
     console.error('[pty] markCwdTrusted failed:', e)
   }
+}
+
+function shellEscapeSingleQuoted(value: string): string {
+  return value.replace(/'/g, `'\\''`)
+}
+
+function buildCodexMcpFlags(): string {
+  const mcpIndexPath = join(app.getAppPath(), 'mcps/canvaflow/index.ts')
+  const commandArg = `mcp_servers.canvaflow.command="bun"`
+  const argsArg = `mcp_servers.canvaflow.args=["run","${mcpIndexPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`
+  return [
+    `-c '${shellEscapeSingleQuoted(commandArg)}'`,
+    `-c '${shellEscapeSingleQuoted(argsArg)}'`,
+  ].join(' ')
 }
 
 export function setupPtyHandlers(getWebContents: () => WebContents | null): void {
@@ -125,6 +139,10 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
       const claudeCmd = [shellBin, ...shellArgs].join(' ')
       shellBin = 'bash'
       shellArgs = ['-c', `stty -echo 2>/dev/null; exec ${claudeCmd}`]
+    } else if (shellBin === 'codex') {
+      const codexCmd = `${defaultShell} ${buildCodexMcpFlags()}`
+      shellBin = 'bash'
+      shellArgs = ['-lc', `exec ${codexCmd}`]
     }
 
     let ptyProcess: Awaited<ReturnType<typeof pty.spawn>>

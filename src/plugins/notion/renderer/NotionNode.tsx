@@ -398,7 +398,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
         } catch {}
       }
 
-      if (target.nodeType === 'terminal' || target.nodeType === 'claude') {
+      if (target.nodeType === 'terminal' || target.nodeType === 'claude' || target.nodeType === 'codex') {
         useNodeStore.getState().setFocusedNodeId(target.nodeId)
         window.terminal.write(target.nodeId, text)
         return
@@ -422,7 +422,7 @@ export function NotionNode({ node }: Props): React.ReactElement {
     nodeHeight: node.height,
     titleBarHeight: TITLE_H,
     toolbarHeight: TOOLBAR_H,
-    dropTargetTypes: ['terminal', 'browser', 'claude', 'kanban'],
+    dropTargetTypes: ['terminal', 'browser', 'claude', 'codex', 'kanban'],
     parseDragStart: useCallback((payload: any) => {
       const { itemId, title } = payload
       if (!itemId) return null

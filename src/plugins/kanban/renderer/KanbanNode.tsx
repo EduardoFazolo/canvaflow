@@ -790,49 +790,59 @@ export function KanbanNode({ node }: { node: NodeData }): React.ReactElement {
             const cwd = workspace?.path
             if (!cwd) throw new Error('No active workspace')
 
-            // 1. Create the worktree (auto-retry with suffix if branch name is taken)
-            const baseBranch = config.branchFromMain ? 'main' : undefined
-            let branchName = config.branchName
             let worktreePath: string
-            try {
-              worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
-            } catch {
-              // Branch name taken — append incrementing number
-              for (let i = 1; i <= 99; i++) {
-                branchName = `${config.branchName}-${i}`
-                try {
-                  worktreePath = await window.git.worktreeAdd(cwd, branchName, baseBranch)
-                  break
-                } catch {
-                  if (i === 99) throw new Error(`Could not create branch: ${config.branchName}`)
+            let viewKey: string
+
+            if (config.workInCurrent) {
+              // Run the agent in the current workspace/branch — no worktree, no new canvas tab
+              if (!workspaceId) throw new Error('No active canvas')
+              worktreePath = cwd
+              viewKey = workspaceId
+            } else {
+              // 1. Create the worktree (auto-retry with suffix if branch name is taken)
+              const baseBranch = config.branchFromMain ? 'main' : undefined
+              let branchName = config.branchName
+              let created: string
+              try {
+                created = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+              } catch {
+                // Branch name taken — append incrementing number
+                created = ''
+                for (let i = 1; i <= 99; i++) {
+                  branchName = `${config.branchName}-${i}`
+                  try {
+                    created = await window.git.worktreeAdd(cwd, branchName, baseBranch)
+                    break
+                  } catch {
+                    if (i === 99) throw new Error(`Could not create branch: ${config.branchName}`)
+                  }
                 }
               }
-              worktreePath = worktreePath!
+              worktreePath = created
+
+              // 2. Create the canvas view tab (but DON'T let it auto-activate yet)
+              viewKey = useViewStore.getState().createWorktreeView({
+                worktreePath,
+                branchName,
+                sourceCardId: worktreeDrop.card.id,
+                parentWorkspaceId: workspaceId,
+              })
+
+              // 3. Switch to the worktree canvas (also activates the tab)
+              switchCanvas(viewKey)
             }
 
-            // 2. Create the canvas view tab (but DON'T let it auto-activate yet)
-            const viewId = useViewStore.getState().createWorktreeView({
-              worktreePath,
-              branchName,
-              sourceCardId: worktreeDrop.card.id,
-              parentWorkspaceId: workspaceId,
-            })
-            const viewKey = viewId
-
-            // 3. Switch to the worktree canvas (also activates the tab)
-            switchCanvas(viewKey)
-
-            // 4. Move card to "In Progress" (operates on kanban store, unaffected by node store)
+            // Move card to "In Progress" (operates on kanban store, unaffected by node store)
             moveCard(worktreeDrop.sourceColId, worktreeDrop.targetColId, worktreeDrop.card.id)
 
-            // 5. Close modal
+            // Close modal
             setWorktreeDrop(null)
 
-            // 6. Build the task prompt (full content, not truncated description)
+            // Build the task prompt (full content, not truncated description)
             const extracted = buildTaskPrompt(worktreeDrop.card)
             const prompt = extracted.text + '\n\nWhen you are done, commit all changes with a descriptive message and push to the remote.'
 
-            // 7. Create the agent node in the worktree canvas
+            // Create the agent node in the target canvas
             spawnAgent({ agentId: config.agentId, viewKey, worktreePath, taskLabel: worktreeDrop.card.title, prompt, role: 'main' })
           }}
           onClose={() => setWorktreeDrop(null)}

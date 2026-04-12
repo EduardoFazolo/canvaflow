@@ -97,6 +97,7 @@ interface DropTargetHighlightProps {
 function dropLabel(nodeType: string): string {
   switch (nodeType) {
     case 'claude': return 'Drop to send to Claude'
+    case 'codex': return 'Drop to send to Codex'
     case 'terminal': return 'Drop to copy into terminal'
     case 'kanban': return 'Drop to add to Kanban'
     case 'browser': return 'Drop to copy into browser'

@@ -59,6 +59,7 @@ const nodeIconMap: Record<string, { icon: React.ElementType; color: string }> = 
   note:         { icon: Notepad,       color: '#b07ec4' },  // purple
   monaco:       { icon: Code,          color: '#d4a056' },  // amber
   claude:       { icon: Brain,         color: '#c47a8a' },  // rose
+  codex:        { icon: Robot,         color: '#5ec3b3' },  // aqua
   orchestrator: { icon: Graph,         color: '#d08c5a' },  // burnt orange
   subagent:     { icon: TreeStructure, color: '#8a7ec4' },  // indigo
   kanban:       { icon: Kanban,        color: '#5aafa0' },  // teal
