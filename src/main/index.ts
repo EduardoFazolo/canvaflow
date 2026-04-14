@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, session, Menu, WebContents, shell, clipboard } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions } from './pty'
+import { setupPtyHandlers, killAllPtys, cleanupOrphanSessions, startGlobalTerminal, setupGlobalTerminalIpc } from './pty'
 import { setupCoordinatorHandlers } from './agentCoordinator'
 import { initDatabase, getAllNodeIds } from './database'
 import { setupWorkspaceHandlers } from './workspace'
@@ -22,6 +22,10 @@ import { startCanvaflowMcpBridge } from '../modules/servers/canvaflow_mcp/main/s
 app.commandLine.appendSwitch('log-level', '3')
 
 let mainWindow: BrowserWindow | null = null
+
+// Kick off the always-on global terminal as early as possible — fires at module load,
+// well before app.whenReady resolves, so early boot output is already buffering.
+startGlobalTerminal(() => mainWindow?.webContents ?? null)
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -175,6 +179,8 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 ]))
 
 app.whenReady().then(async () => {
+  setupGlobalTerminalIpc()
+
   try {
     initDatabase()
   } catch (err) {

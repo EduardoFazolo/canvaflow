@@ -4,6 +4,7 @@ import { TitleBar, TITLEBAR_H } from './components/TitleBar'
 import { CommandPalette } from './components/CommandPalette'
 import { ViewTabBar, VIEW_TABBAR_H } from './components/ViewTabBar'
 import { ViewLayer } from './components/ViewLayer'
+import { GlobalTerminalPane } from './components/GlobalTerminalPane'
 import { useAutoSave } from './hooks/useAutoSave'
 import { useWorkspaceInit } from './hooks/useWorkspaceInit'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -89,6 +90,7 @@ export default function App(): React.ReactElement {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <ViewTabBar />
           <ViewLayer />
+          <GlobalTerminalPane />
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

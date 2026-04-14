@@ -84,6 +84,8 @@ declare global {
       kill: (id: string, workspaceId: string, deleteSession: boolean) => Promise<void>
       saveState: (nodeId: string, serializedState: string) => Promise<void>
       onData: (id: string, cb: (data: string) => void) => () => void
+      globalId: () => Promise<string>
+      getGlobalBuffer: () => Promise<string>
     }
 
     workspace: {

@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld('terminal', {
     ipcRenderer.on('terminal:data', listener)
     return () => ipcRenderer.removeListener('terminal:data', listener)
   },
+
+  globalId: (): Promise<string> => ipcRenderer.invoke('terminal:globalId'),
+  getGlobalBuffer: (): Promise<string> => ipcRenderer.invoke('terminal:getGlobalBuffer'),
 })
 
 contextBridge.exposeInMainWorld('workspace', {

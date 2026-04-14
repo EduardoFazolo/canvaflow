@@ -21,6 +21,56 @@ interface IPty {
 const ptys = new Map<string, IPty>()
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+export const GLOBAL_TERMINAL_ID = '__global'
+let globalBuffer = ''
+const GLOBAL_BUFFER_CAP = 500_000
+
+/**
+ * Spawn the always-on global terminal as early as possible in the main-process lifecycle.
+ * Runs at ~/ (homedir), survives workspace switches, and buffers output until the
+ * renderer attaches so early boot traffic isn't lost.
+ */
+export async function startGlobalTerminal(getWebContents: () => WebContents | null): Promise<void> {
+  if (ptys.has(GLOBAL_TERMINAL_ID)) return
+  try {
+    const pty = await import('node-pty')
+    const shell = process.env.SHELL || '/bin/zsh'
+    const cwd = os.homedir()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { TERM_SESSION_ID: _sid, ...baseEnv } = process.env
+    const canvaBin = join(os.homedir(), '.canvaflow', 'bin')
+    const existingPath = baseEnv.PATH ?? ''
+    const ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 24,
+      cwd,
+      env: {
+        ...baseEnv,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        CANVAFLOW_NODE_ID: GLOBAL_TERMINAL_ID,
+        PATH: existingPath.includes(canvaBin) ? existingPath : `${canvaBin}:${existingPath}`,
+      },
+    })
+    ptyProcess.onData((data: string) => {
+      globalBuffer = (globalBuffer + data).slice(-GLOBAL_BUFFER_CAP)
+      const wc = getWebContents()
+      if (wc && !wc.isDestroyed()) {
+        try { wc.send('terminal:data', GLOBAL_TERMINAL_ID, data) } catch {}
+      }
+    })
+    ptys.set(GLOBAL_TERMINAL_ID, ptyProcess)
+  } catch (e) {
+    console.error('[pty] startGlobalTerminal failed:', e)
+  }
+}
+
+export function setupGlobalTerminalIpc(): void {
+  ipcMain.handle('terminal:getGlobalBuffer', () => globalBuffer)
+  ipcMain.handle('terminal:globalId', () => GLOBAL_TERMINAL_ID)
+}
+
 /**
  * Pre-accept Claude Code's "trust this folder?" dialog for a cwd by writing
  * `hasTrustDialogAccepted: true` into ~/.claude.json. Claude Code reads this
