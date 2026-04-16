@@ -367,11 +367,17 @@ export function registerGitHandlers(ipc: IpcMainLike): void {
   })
 
   ipc.handle('git:stage', async (_e, rootPath: string, filePaths: string[]): Promise<void> => {
-    try { await git(rootPath).add(filePaths) } catch (e) { console.error('[git:stage]', e) }
+    try {
+      const top = (await git(rootPath).revparse(['--show-toplevel'])).trim()
+      await git(top || rootPath).add(filePaths)
+    } catch (e) { console.error('[git:stage]', e) }
   })
 
   ipc.handle('git:unstage', async (_e, rootPath: string, filePaths: string[]): Promise<void> => {
-    try { await git(rootPath).reset(['HEAD', '--', ...filePaths]) } catch (e) { console.error('[git:unstage]', e) }
+    try {
+      const top = (await git(rootPath).revparse(['--show-toplevel'])).trim()
+      await git(top || rootPath).reset(['HEAD', '--', ...filePaths])
+    } catch (e) { console.error('[git:unstage]', e) }
   })
 
   ipc.handle('git:commit', async (_e, rootPath: string, message: string): Promise<void> => {
