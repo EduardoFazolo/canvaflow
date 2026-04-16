@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useGlobalTerminalStore } from '../stores/globalTerminalStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { AddWorkspaceDialog } from './Sidebar'
 import '@xterm/xterm/css/xterm.css'
 
 const HEADER_H = 34
@@ -24,6 +25,7 @@ export function GlobalTerminalPane(): React.ReactElement | null {
   const fitRef = useRef<FitAddon | null>(null)
   const isAtBottomRef = useRef(true)
   const [dragging, setDragging] = useState(false)
+  const [addWsPath, setAddWsPath] = useState<string | null>(null)
 
   useEffect(() => { if (!loaded) load() }, [loaded, load])
 
@@ -197,8 +199,34 @@ export function GlobalTerminalPane(): React.ReactElement | null {
       >
         <span style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▾</span>
         <span>terminal</span>
-        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>~</span>
+        <button
+          title="Add current terminal directory as workspace"
+          onClick={async (e) => {
+            e.stopPropagation()
+            const cwd = await window.terminal.getGlobalCwd()
+            setAddWsPath(cwd || '')
+          }}
+          style={{
+            marginLeft: 'auto',
+            height: 20,
+            padding: '0 8px',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 4,
+            background: 'transparent',
+            color: 'rgba(255,255,255,0.55)',
+            fontSize: 10,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            letterSpacing: 0.4,
+            textTransform: 'uppercase',
+          }}
+        >
+          + workspace
+        </button>
       </div>
+      {addWsPath !== null && (
+        <AddWorkspaceDialog initialPath={addWsPath} onClose={() => setAddWsPath(null)} />
+      )}
       <div
         ref={hostRef}
         style={{

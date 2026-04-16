@@ -69,6 +69,25 @@ export async function startGlobalTerminal(getWebContents: () => WebContents | nu
 export function setupGlobalTerminalIpc(): void {
   ipcMain.handle('terminal:getGlobalBuffer', () => globalBuffer)
   ipcMain.handle('terminal:globalId', () => GLOBAL_TERMINAL_ID)
+  ipcMain.handle('terminal:getGlobalCwd', async () => {
+    const p = ptys.get(GLOBAL_TERMINAL_ID)
+    if (!p) return os.homedir()
+    try {
+      const { execFileSync } = await import('child_process')
+      if (process.platform === 'darwin') {
+        // Find the most recent child shell of the pty's session leader and read its cwd.
+        const out = execFileSync('/bin/sh', ['-c', `pgrep -P ${p.pid} | tail -1`], { encoding: 'utf8' }).trim()
+        const child = out ? Number(out) : p.pid
+        const cwdOut = execFileSync('/usr/sbin/lsof', ['-a', '-p', String(child), '-d', 'cwd', '-Fn'], { encoding: 'utf8' })
+        const line = cwdOut.split('\n').find((l) => l.startsWith('n'))
+        if (line) return line.slice(1)
+      } else if (process.platform === 'linux') {
+        const { readlinkSync } = await import('fs')
+        try { return readlinkSync(`/proc/${p.pid}/cwd`) } catch {}
+      }
+    } catch {}
+    return os.homedir()
+  })
 }
 
 /**

@@ -86,6 +86,7 @@ declare global {
       onData: (id: string, cb: (data: string) => void) => () => void
       globalId: () => Promise<string>
       getGlobalBuffer: () => Promise<string>
+      getGlobalCwd: () => Promise<string>
     }
 
     workspace: {
@@ -292,6 +293,7 @@ declare global {
       }>>
       openFile: (filePath: string) => Promise<void>
       readFile: (filePath: string) => Promise<string>
+      fileExists: (filePath: string) => Promise<boolean>
       readFileBase64: (filePath: string) => Promise<string>
       writeFile: (filePath: string, content: string) => Promise<void>
       delete: (filePath: string) => Promise<void>

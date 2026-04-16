@@ -92,6 +92,47 @@ function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
 
 const workspaceIconCache = new Map<string, string | null>()
 
+const FAVICON_CANDIDATES = [
+  'public/favicon.ico',
+  'public/favicon.png',
+  'public/favicon.svg',
+  'static/favicon.ico',
+  'static/favicon.png',
+  'favicon.ico',
+  'favicon.png',
+  'favicon.svg',
+  'assets/favicon.ico',
+  'assets/favicon.png',
+  'src/assets/favicon.ico',
+  'src/assets/favicon.png',
+  'resources/icon.ico',
+  'resources/icon.png',
+  'build/icon.ico',
+  'build/icon.png',
+]
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+}
+
+async function findFavicon(basePath: string): Promise<string | null> {
+  const base = basePath.replace(/\/$/, '')
+  for (const candidate of FAVICON_CANDIDATES) {
+    const fullPath = `${base}/${candidate}`
+    const exists = await window.fs.fileExists(fullPath)
+    if (!exists) continue
+    const b64 = await window.fs.readFileBase64(fullPath)
+    if (b64) {
+      const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase()
+      const mime = MIME_BY_EXT[ext] || 'image/x-icon'
+      return `data:${mime};base64,${b64}`
+    }
+  }
+  return null
+}
+
 function WorkspaceIcon({ path, open }: { path: string; open: boolean }): React.ReactElement {
   const [iconUrl, setIconUrl] = useState<string | null>(workspaceIconCache.get(path) ?? null)
   const [checked, setChecked] = useState(workspaceIconCache.has(path))
@@ -99,21 +140,12 @@ function WorkspaceIcon({ path, open }: { path: string; open: boolean }): React.R
   useEffect(() => {
     if (checked) return
     let cancelled = false
-    window.fs.readDir(path).then((entries) => {
-      const ico = entries.find((e) => !e.isDir && /\.ico$/i.test(e.name))
-      if (ico && !cancelled) {
-        const icoPath = path.replace(/\/$/, '') + '/' + ico.name
-        window.fs.readFileBase64(icoPath).then((b64) => {
-          if (!cancelled) {
-            const url = `data:image/x-icon;base64,${b64}`
-            workspaceIconCache.set(path, url)
-            setIconUrl(url)
-          }
-        }).catch(() => { workspaceIconCache.set(path, null) })
-      } else {
-        workspaceIconCache.set(path, null)
+    findFavicon(path).then((url) => {
+      if (!cancelled) {
+        workspaceIconCache.set(path, url)
+        setIconUrl(url)
+        setChecked(true)
       }
-      if (!cancelled) setChecked(true)
     }).catch(() => {
       workspaceIconCache.set(path, null)
       if (!cancelled) setChecked(true)
@@ -133,9 +165,9 @@ function WorkspaceIcon({ path, open }: { path: string; open: boolean }): React.R
 // Add Workspace Dialog
 // ---------------------------------------------------------------------------
 
-function AddWorkspaceDialog({ onClose }: { onClose: () => void }): React.ReactElement {
-  const [name, setName] = useState('')
-  const [path, setPath] = useState('')
+export function AddWorkspaceDialog({ onClose, initialPath = '' }: { onClose: () => void; initialPath?: string }): React.ReactElement {
+  const [name, setName] = useState(initialPath ? (initialPath.split('/').pop() || initialPath) : '')
+  const [path, setPath] = useState(initialPath)
   const [picking, setPicking] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 

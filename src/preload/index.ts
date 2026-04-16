@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('terminal', {
 
   globalId: (): Promise<string> => ipcRenderer.invoke('terminal:globalId'),
   getGlobalBuffer: (): Promise<string> => ipcRenderer.invoke('terminal:getGlobalBuffer'),
+  getGlobalCwd: (): Promise<string> => ipcRenderer.invoke('terminal:getGlobalCwd'),
 })
 
 contextBridge.exposeInMainWorld('workspace', {
@@ -195,6 +196,9 @@ contextBridge.exposeInMainWorld('fs', {
 
   readFile: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('fs:readFile', filePath),
+
+  fileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('fs:fileExists', filePath),
 
   readFileBase64: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('fs:readFileBase64', filePath),
