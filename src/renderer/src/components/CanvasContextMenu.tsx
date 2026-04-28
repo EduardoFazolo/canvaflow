@@ -54,6 +54,12 @@ export function CanvasContextMenu({ children }: Props): React.ReactElement {
             <span style={{ flex: 1 }}>Codex</span>
             <span style={{ marginLeft: 24, opacity: 0.35, fontSize: 11 }}>⌘⇧X</span>
           </ContextMenuItem>
+          <ContextMenuItem onClick={() => {
+            const cwd = getActiveCwd()
+            addAndFocus('claude', 350, 240, { cwd, claudeFlags: '--dangerously-skip-permissions' })
+          }}>
+            <span style={{ flex: 1 }}>Claude --Dangerous</span>
+          </ContextMenuItem>
         </ContextMenuSub>
         <ContextMenuSub trigger="Board">
           <ContextMenuItem onClick={() => addAndFocus('kanban', 490, 280)}>
