@@ -1,4 +1,8 @@
 import { app, ipcMain, WebContents } from 'electron'
+
+function isRendererAlive(wc: WebContents | null): wc is WebContents {
+  return !!wc && !wc.isDestroyed() && !!wc.mainFrame && !wc.mainFrame.isDestroyed()
+}
 import * as os from 'os'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -56,9 +60,7 @@ export async function startGlobalTerminal(getWebContents: () => WebContents | nu
     ptyProcess.onData((data: string) => {
       globalBuffer = (globalBuffer + data).slice(-GLOBAL_BUFFER_CAP)
       const wc = getWebContents()
-      if (wc && !wc.isDestroyed()) {
-        try { wc.send('terminal:data', GLOBAL_TERMINAL_ID, data) } catch {}
-      }
+      if (isRendererAlive(wc)) wc.send('terminal:data', GLOBAL_TERMINAL_ID, data)
     })
     ptys.set(GLOBAL_TERMINAL_ID, ptyProcess)
   } catch (e) {
@@ -227,7 +229,7 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     const sendStatus = (status: AgentStatus) => {
       logAgentDebug('pty-main', 'emit-status', { nodeId: id, status })
       const wc = getWebContents()
-      if (wc && !wc.isDestroyed()) wc.send('agent:status', { nodeId: id, status })
+      if (isRendererAlive(wc)) wc.send('agent:status', { nodeId: id, status })
     }
 
     const clearIdleTimer = () => {
@@ -253,7 +255,7 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
         coordinatorOnData(id, data, (d) => ptyProcess.write(d))
 
         const wc = getWebContents()
-        if (wc && !wc.isDestroyed()) {
+        if (isRendererAlive(wc)) {
           wc.send('terminal:data', id, data)
 
           const clean = sanitizeTerminalOutput(data)
@@ -333,7 +335,7 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
     if (proc) {
       logAgentDebug('pty-main', 'terminal-kill', { nodeId: id, workspaceId, deleteSession })
       const wc = getWebContents()
-      if (wc && !wc.isDestroyed()) wc.send('agent:status', { nodeId: id, status: 'idle' })
+      if (isRendererAlive(wc)) wc.send('agent:status', { nodeId: id, status: 'idle' })
       const idleTimer = idleTimers.get(id)
       if (idleTimer) {
         clearTimeout(idleTimer)

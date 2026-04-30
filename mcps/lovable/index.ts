@@ -5,7 +5,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 
-const BRIDGE_URL = 'http://127.0.0.1:7823'
+const BRIDGE_URL = 'http://127.0.0.1:47823'
 
 const server = new Server(
   { name: 'lovable', version: '1.0.0' },

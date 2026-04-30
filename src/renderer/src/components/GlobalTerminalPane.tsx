@@ -38,7 +38,7 @@ export function GlobalTerminalPane(): React.ReactElement | null {
       lineHeight: 1.2,
       cursorBlink: true,
       allowTransparency: false,
-      scrollback: 10_000,
+      scrollback: 2000,
       theme: {
         background: '#0d0d0d',
         foreground: '#e8e8e8',

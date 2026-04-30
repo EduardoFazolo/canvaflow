@@ -122,7 +122,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
       lineHeight: 1.2,
       cursorBlink: true,
       allowTransparency: false,
-      scrollback: 5000,
+      scrollback: 1000,
       theme: {
         background: '#0d0d0d',
         foreground: '#e8e8e8',

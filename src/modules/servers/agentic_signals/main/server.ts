@@ -4,6 +4,12 @@ import { logAgentDebug, summarizeText } from '../shared/debug'
 import { AGENT_SIGNAL_PORT } from '../shared/constants'
 import type { AgentSignal, AgentFileChange } from '../shared/types'
 
+const MAX_CLUSTER_LOG = 500
+
+function isRendererAlive(wc: WebContents | null): wc is WebContents {
+  return !!wc && !wc.isDestroyed() && !!wc.mainFrame && !wc.mainFrame.isDestroyed()
+}
+
 /** Per-cluster change log: orchestratorId → list of file changes */
 const clusterChangeLogs = new Map<string, AgentFileChange[]>()
 
@@ -39,7 +45,7 @@ export function startAgentSignalServer(getWebContents: () => WebContents | null)
             message: signal.message ? summarizeText(signal.message) : '',
           })
           const wc = getWebContents()
-          if (wc && !wc.isDestroyed()) wc.send('agent:status', signal)
+          if (isRendererAlive(wc)) wc.send('agent:status', signal)
           res.writeHead(200).end()
 
         } else if (req.url === '/agent-file-change') {
@@ -56,11 +62,12 @@ export function startAgentSignalServer(getWebContents: () => WebContents | null)
           if (clusterId) {
             const log = clusterChangeLogs.get(clusterId) ?? []
             log.push(change)
+            if (log.length > MAX_CLUSTER_LOG) log.splice(0, log.length - MAX_CLUSTER_LOG)
             clusterChangeLogs.set(clusterId, log)
 
             // Broadcast to renderer so the orchestrator UI can update
             const wc = getWebContents()
-            if (wc && !wc.isDestroyed()) {
+            if (isRendererAlive(wc)) {
               wc.send('agent:file-change', { ...change, orchestratorId: clusterId })
             }
           }

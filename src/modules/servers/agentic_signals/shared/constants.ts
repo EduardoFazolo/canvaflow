@@ -1,1 +1,1 @@
-export const AGENT_SIGNAL_PORT = 39847
+export const AGENT_SIGNAL_PORT = 59847

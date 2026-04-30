@@ -68,7 +68,6 @@ const PROMPT_PATTERNS: PromptPattern[] = [
 // Claude is ready when we see the input prompt character
 const READY_PATTERNS = [
   /❯\s*$/m,         // Claude Code's default prompt
-  />\s*$/m,          // fallback prompt
   /\$ $/m,           // shell prompt (shouldn't happen but safety net)
 ]
 
@@ -261,7 +260,7 @@ export function isCoordinated(nodeId: string): boolean {
  */
 function emitCoordinatorStatus(nodeId: string, phase: string, message: string): void {
   const wc = _getWebContents?.()
-  if (wc && !wc.isDestroyed()) {
+  if (wc && !wc.isDestroyed() && wc.mainFrame && !wc.mainFrame.isDestroyed()) {
     wc.send('coordinator:status', { nodeId, phase, message })
   }
 }

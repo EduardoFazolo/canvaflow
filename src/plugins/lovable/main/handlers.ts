@@ -6,7 +6,7 @@ import { tmpdir, homedir } from 'os'
 import { executeBrowserViewJS } from '../../../main/browserViewManager'
 import type { IpcMainLike } from '../../types'
 
-const HTTP_PORT = 7823
+const HTTP_PORT = 47823
 
 interface NodeStatus {
   loggedIn: boolean

@@ -21,7 +21,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 
-const BRIDGE_URL = 'http://127.0.0.1:7824'
+const BRIDGE_URL = 'http://127.0.0.1:47824'
 
 // ---------------------------------------------------------------------------
 // Types (mirrored from shared/types.ts — MCP server can't import from src/)
