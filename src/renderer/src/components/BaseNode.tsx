@@ -5,7 +5,7 @@ import { useNodeStore } from '../stores/nodeStore'
 import { useCameraStore } from '../stores/cameraStore'
 import { useTemplateStore } from '../stores/templateStore'
 import { useActivationStore } from '../stores/activationStore'
-import { SIDEBAR_W } from './Sidebar'
+import { useCanvasViewportStore } from '../stores/canvasViewportStore'
 import {
   ContextMenu, ContextMenuContent, useContextMenu,
   ContextMenuItem, ContextMenuSeparator, ContextMenuSub,
@@ -388,11 +388,11 @@ export function BaseNode({ node, children, titleExtra, contextMenuExtra, noCssZo
         storeUpdate(id, { x: nx, y: ny })
       }
     }
-    setDraggingOverSidebar(e.clientX < SIDEBAR_W)
+    setDraggingOverSidebar(e.clientX < useCanvasViewportStore.getState().left)
   }, [node.id, update, setDraggingOverSidebar])
 
   const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
-    if (isDragging.current && e.clientX < SIDEBAR_W) {
+    if (isDragging.current && e.clientX < useCanvasViewportStore.getState().left) {
       // Drop onto sidebar — save as template and snap node back to original position
       const { serializedState: _s, ...safeProps } = node.props as any
       addTemplate({ type: node.type, title: node.title, props: safeProps })
