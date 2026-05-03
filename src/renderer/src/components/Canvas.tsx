@@ -51,10 +51,11 @@ export function Canvas(): React.ReactElement {
       if (!canvas) return
       if ((e.target as HTMLElement).closest('[data-no-canvas-gesture]')) return
 
+      const rect = canvas.getBoundingClientRect()
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return
+
       const now = Date.now()
       const isDoubleTap = now - tap.lastTime < 350
-
-      const rect = canvas.getBoundingClientRect()
       const { camera } = useCameraStore.getState()
       const wx = (e.clientX - rect.left - camera.x) / camera.zoom
       const wy = (e.clientY - rect.top - camera.y) / camera.zoom
