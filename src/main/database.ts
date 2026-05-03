@@ -14,6 +14,8 @@ export interface WorkspaceRow {
   lastOpenedAt: number
   color: string | null
   description: string | null
+  archived: number // 0 | 1
+  sortOrder: number
 }
 
 export interface NodeRow {
@@ -170,6 +172,12 @@ function migrate(): void {
   if (!wsCols.some((c) => c.name === 'description')) {
     db.exec('ALTER TABLE workspaces ADD COLUMN description TEXT')
   }
+  if (!wsCols.some((c) => c.name === 'archived')) {
+    db.exec('ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!wsCols.some((c) => c.name === 'sortOrder')) {
+    db.exec('ALTER TABLE workspaces ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -182,14 +190,16 @@ export function getWorkspaces(): WorkspaceRow[] {
 
 export function saveWorkspace(w: WorkspaceRow): void {
   db.prepare(`
-    INSERT INTO workspaces (id, name, path, lastOpenedAt, color, description)
-    VALUES (@id, @name, @path, @lastOpenedAt, @color, @description)
+    INSERT INTO workspaces (id, name, path, lastOpenedAt, color, description, archived, sortOrder)
+    VALUES (@id, @name, @path, @lastOpenedAt, @color, @description, @archived, @sortOrder)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       path = excluded.path,
       lastOpenedAt = excluded.lastOpenedAt,
       color = excluded.color,
-      description = excluded.description
+      description = excluded.description,
+      archived = excluded.archived,
+      sortOrder = excluded.sortOrder
   `).run(w)
 }
 

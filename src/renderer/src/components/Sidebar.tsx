@@ -28,6 +28,10 @@ import {
   GearSix,
   X,
   CaretRight,
+  Eye,
+  EyeSlash,
+  Archive,
+  ArrowCounterClockwise,
 } from '@phosphor-icons/react'
 
 function jumpToNode(node: NodeData): void {
@@ -319,24 +323,44 @@ interface SectionProps {
   nodes: NodeSummary[]
   onSwitch: () => void
   onDelete: () => void
+  onArchive: () => void
+  privacyMode: boolean
+  isDragging?: boolean
+  isDragOver?: boolean
+  dragOverPos?: 'before' | 'after'
+  onDragStart?: () => void
+  onDragOver?: (e: React.DragEvent, pos: 'before' | 'after') => void
+  onDragLeave?: () => void
+  onDrop?: () => void
+  onDragEnd?: () => void
 }
 
-function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: SectionProps): React.ReactElement {
+function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onArchive, privacyMode,
+  isDragging, isDragOver, dragOverPos, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd }: SectionProps): React.ReactElement {
   const [open, setOpen] = useState(isActive)
   const [headerHovered, setHeaderHovered] = useState(false)
   const [deleteHovered, setDeleteHovered] = useState(false)
+  const [archiveHovered, setArchiveHovered] = useState(false)
 
   // Auto-expand when becoming active
   useEffect(() => { if (isActive) setOpen(true) }, [isActive])
 
   return (
-    <div style={{ width: '100%' }}>
+    <div
+      style={{ width: '100%', position: 'relative', opacity: isDragging ? 0.4 : 1 }}
+      onDragEnd={onDragEnd}
+    >
+      {/* Drop indicator — before */}
+      {isDragOver && dragOverPos === 'before' && (
+        <div style={{ position: 'absolute', top: 0, left: 8, right: 8, height: 2, background: '#a78bfa', borderRadius: 1, zIndex: 10, pointerEvents: 'none' }} />
+      )}
       {/* Workspace header row */}
       <div
+        draggable
         style={{
           display: 'flex', alignItems: 'center', gap: 5,
           height: 30, padding: '0 10px 0 8px',
-          cursor: 'pointer',
+          cursor: 'grab',
           background: isActive && headerHovered
             ? 'rgba(255,255,255,0.07)'
             : headerHovered
@@ -349,6 +373,14 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
         onMouseEnter={() => setHeaderHovered(true)}
         onMouseLeave={() => setHeaderHovered(false)}
         onClick={() => { setOpen((o) => !o); if (!isActive) onSwitch() }}
+        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
+        onDragOver={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          const pos: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+          onDragOver?.(e, pos)
+        }}
+        onDragLeave={onDragLeave}
+        onDrop={(e) => { e.preventDefault(); onDrop?.() }}
       >
         {/* Active indicator */}
         {isActive && (
@@ -375,25 +407,51 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           letterSpacing: '0.01em',
         }}>
-          {workspace.name}
+          {privacyMode && !isActive ? (
+            <>
+              {workspace.name.slice(0, 3)}
+              <span style={{ filter: 'blur(4px)', userSelect: 'none' }}>
+                {workspace.name.slice(3)}
+              </span>
+            </>
+          ) : workspace.name}
         </span>
 
-        {/* Delete button — only on hover */}
+        {/* Archive + Delete buttons — only on hover */}
         {headerHovered && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            onMouseEnter={() => setDeleteHovered(true)}
-            onMouseLeave={() => setDeleteHovered(false)}
-            style={{
-              width: 16, height: 16, borderRadius: 4, border: 'none',
-              background: deleteHovered ? 'rgba(239,68,68,0.2)' : 'transparent',
-              color: deleteHovered ? 'rgba(239,68,68,0.8)' : 'rgba(255,255,255,0.3)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 0, flexShrink: 0,
-            }}
-          >
-            <X size={10} weight="bold" />
-          </button>
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); onArchive() }}
+              onMouseEnter={() => setArchiveHovered(true)}
+              onMouseLeave={() => setArchiveHovered(false)}
+              title={workspace.archived ? 'Unarchive' : 'Archive'}
+              style={{
+                width: 16, height: 16, borderRadius: 4, border: 'none',
+                background: archiveHovered ? 'rgba(167,139,250,0.15)' : 'transparent',
+                color: archiveHovered ? 'rgba(167,139,250,0.8)' : 'rgba(255,255,255,0.3)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: 0, flexShrink: 0,
+              }}
+            >
+              {workspace.archived
+                ? <ArrowCounterClockwise size={10} weight="bold" />
+                : <Archive size={10} weight="bold" />}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              onMouseEnter={() => setDeleteHovered(true)}
+              onMouseLeave={() => setDeleteHovered(false)}
+              style={{
+                width: 16, height: 16, borderRadius: 4, border: 'none',
+                background: deleteHovered ? 'rgba(239,68,68,0.2)' : 'transparent',
+                color: deleteHovered ? 'rgba(239,68,68,0.8)' : 'rgba(255,255,255,0.3)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: 0, flexShrink: 0,
+              }}
+            >
+              <X size={10} weight="bold" />
+            </button>
+          </>
         )}
       </div>
 
@@ -413,6 +471,10 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete }: Se
             ))
           )}
         </div>
+      )}
+      {/* Drop indicator — after */}
+      {isDragOver && dragOverPos === 'after' && (
+        <div style={{ position: 'absolute', bottom: 0, left: 8, right: 8, height: 2, background: '#a78bfa', borderRadius: 1, zIndex: 10, pointerEvents: 'none' }} />
       )}
     </div>
   )
@@ -551,14 +613,24 @@ function NodeItem({ node, workspaceActive, onSwitchWorkspace, workspaceId }: {
 // ---------------------------------------------------------------------------
 
 export function Sidebar(): React.ReactElement {
-  const { workspaces, activeId, setActive, removeWorkspace, touchWorkspace, nodeSummaries, setNodeSummaries } =
+  const { workspaces, activeId, setActive, removeWorkspace, touchWorkspace, archiveWorkspace, reorderWorkspaces, nodeSummaries, setNodeSummaries } =
     useWorkspaceStore()
   const { templates, loaded: templatesLoaded, load: loadTemplates, remove: removeTemplate,
     draggingOverSidebar, draggedTemplate, dragGhostPos,
     startTemplateDrag, updateTemplateDragPos, endTemplateDrag } = useTemplateStore()
   const [showAdd, setShowAdd] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [libraryCollapsed, setLibraryCollapsed] = useState(false)
+  const [libraryCollapsed, setLibraryCollapsed] = useState(true)
+  const [archivedCollapsed, setArchivedCollapsed] = useState(true)
+  const [privacyMode, setPrivacyMode] = useState(false)
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [dragOverPos, setDragOverPos] = useState<'before' | 'after'>('before')
+
+  const sortWs = (list: Workspace[]) =>
+    [...list].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  const activeWorkspaces = sortWs(workspaces.filter((w) => !w.archived))
+  const archivedWorkspaces = sortWs(workspaces.filter((w) => w.archived))
 
   useEffect(() => { if (!templatesLoaded) loadTemplates() }, [templatesLoaded, loadTemplates])
 
@@ -618,6 +690,33 @@ export function Sidebar(): React.ReactElement {
     setConfirmDeleteId(null)
   }
 
+  const handleArchive = async (id: string, archived: boolean) => {
+    archiveWorkspace(id, archived)
+    const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === id)
+    if (ws) await window.workspace.save({ ...ws, archived: archived ? 1 : 0, description: ws.description ?? null, color: ws.color ?? null, sortOrder: ws.sortOrder ?? 0 })
+  }
+
+  const handleReorder = async (list: Workspace[], fromId: string, toId: string, pos: 'before' | 'after') => {
+    const fromIdx = list.findIndex((w) => w.id === fromId)
+    const toIdx = list.findIndex((w) => w.id === toId)
+    if (fromIdx < 0 || toIdx < 0 || fromId === toId) return
+    const next = [...list]
+    const [item] = next.splice(fromIdx, 1)
+    const insertAt = next.findIndex((w) => w.id === toId)
+    next.splice(pos === 'before' ? insertAt : insertAt + 1, 0, item)
+    const orderedIds = next.map((w) => w.id)
+    reorderWorkspaces(orderedIds)
+    // persist
+    const updated = useWorkspaceStore.getState().workspaces
+    await Promise.all(
+      orderedIds.map((id, idx) => {
+        const ws = updated.find((w) => w.id === id)
+        if (!ws) return Promise.resolve()
+        return window.workspace.save({ ...ws, sortOrder: idx, archived: ws.archived ? 1 : 0, description: ws.description ?? null, color: ws.color ?? null })
+      })
+    )
+  }
+
   return (
     <>
       <div style={{
@@ -646,6 +745,7 @@ export function Sidebar(): React.ReactElement {
           }}>
             Workspaces
           </span>
+          <PrivacyButton active={privacyMode} onClick={() => setPrivacyMode((v) => !v)} />
           <AddIconButton onClick={() => setShowAdd(true)} />
         </div>
 
@@ -654,7 +754,7 @@ export function Sidebar(): React.ReactElement {
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
           padding: '2px 0 4px 0',
         }}>
-          {workspaces.map((ws) => (
+          {activeWorkspaces.map((ws) => (
             <WorkspaceSection
               key={ws.id}
               workspace={ws}
@@ -662,15 +762,59 @@ export function Sidebar(): React.ReactElement {
               nodes={nodeSummaries[ws.id] ?? []}
               onSwitch={() => handleSwitch(ws.id)}
               onDelete={() => setConfirmDeleteId(ws.id)}
+              onArchive={() => handleArchive(ws.id, true)}
+              privacyMode={privacyMode}
+              isDragging={draggedId === ws.id}
+              isDragOver={dragOverId === ws.id}
+              dragOverPos={dragOverPos}
+              onDragStart={() => setDraggedId(ws.id)}
+              onDragOver={(e, pos) => { e.preventDefault(); setDragOverId(ws.id); setDragOverPos(pos) }}
+              onDragLeave={() => setDragOverId(null)}
+              onDrop={() => {
+                if (draggedId) handleReorder(activeWorkspaces, draggedId, ws.id, dragOverPos)
+                setDraggedId(null); setDragOverId(null)
+              }}
+              onDragEnd={() => { setDraggedId(null); setDragOverId(null) }}
             />
           ))}
 
-          {workspaces.length === 0 && (
+          {activeWorkspaces.length === 0 && archivedWorkspaces.length === 0 && (
             <div style={{
               padding: '20px 16px', fontSize: 12,
               color: 'rgba(255,255,255,0.2)', textAlign: 'center', lineHeight: 1.6,
             }}>
               No workspaces yet.{'\n'}Click + to add one.
+            </div>
+          )}
+
+          {archivedWorkspaces.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div
+                onClick={() => setArchivedCollapsed((v) => !v)}
+                style={{
+                  padding: '5px 12px 4px',
+                  fontSize: 10.5, fontWeight: 600,
+                  color: 'rgba(255,255,255,0.2)',
+                  letterSpacing: '0.08em', textTransform: 'uppercase',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                  userSelect: 'none',
+                }}
+              >
+                <ChevronIcon open={!archivedCollapsed} />
+                Archived
+              </div>
+              {!archivedCollapsed && archivedWorkspaces.map((ws) => (
+                <WorkspaceSection
+                  key={ws.id}
+                  workspace={ws}
+                  isActive={ws.id === activeId}
+                  nodes={nodeSummaries[ws.id] ?? []}
+                  onSwitch={() => handleSwitch(ws.id)}
+                  onDelete={() => setConfirmDeleteId(ws.id)}
+                  onArchive={() => handleArchive(ws.id, false)}
+                  privacyMode={privacyMode}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -893,7 +1037,7 @@ function SessionItem({ session, onRemove }: {
 function SessionsSection(): React.ReactElement {
   const { sessions, loaded, load, add, remove } = useSessionStore()
   const [creating, setCreating] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -1017,6 +1161,28 @@ function GearButton({ onClick }: { onClick: () => void }): React.ReactElement {
       }}
     >
       <GearSix size={15} weight="fill" />
+    </button>
+  )
+}
+
+function PrivacyButton({ active, onClick }: { active: boolean; onClick: () => void }): React.ReactElement {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      onClick={onClick}
+      title={active ? 'Show workspace names' : 'Hide workspace names'}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 20, height: 20, borderRadius: 4, border: 'none',
+        background: active ? 'rgba(167,139,250,0.15)' : hovered ? 'rgba(255,255,255,0.08)' : 'transparent',
+        color: active ? 'rgba(167,139,250,0.8)' : hovered ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 0, flexShrink: 0, transition: 'background 0.1s, color 0.1s',
+        marginRight: 2,
+      }}
+    >
+      {active ? <EyeSlash size={12} weight="bold" /> : <Eye size={12} weight="bold" />}
     </button>
   )
 }

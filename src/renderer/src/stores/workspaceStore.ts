@@ -8,6 +8,8 @@ export interface Workspace {
   lastOpenedAt: number
   color: string | null
   description: string | null
+  archived?: boolean
+  sortOrder?: number
 }
 
 export interface NodeSummary {
@@ -29,6 +31,8 @@ interface WorkspaceState {
   removeWorkspace: (id: string) => void
   renameWorkspace: (id: string, name: string) => void
   touchWorkspace: (id: string) => void
+  archiveWorkspace: (id: string, archived: boolean) => void
+  reorderWorkspaces: (orderedIds: string[]) => void
   setNodeSummaries: (workspaceId: string, nodes: NodeSummary[]) => void
 }
 
@@ -72,6 +76,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspaces: s.workspaces.map((w) =>
         w.id === id ? { ...w, lastOpenedAt: Date.now() } : w
       ),
+    })),
+
+  archiveWorkspace: (id, archived) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, archived } : w)),
+    })),
+
+  reorderWorkspaces: (orderedIds) =>
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => {
+        const idx = orderedIds.indexOf(w.id)
+        return idx >= 0 ? { ...w, sortOrder: idx } : w
+      }),
     })),
 
   setNodeSummaries: (workspaceId, nodes) =>

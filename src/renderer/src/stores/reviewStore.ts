@@ -104,10 +104,10 @@ export function initReviewIpc(): void {
   })()
 
   // Listen for new threads / replies from the MCP bridge
-  window.canvaflowMcp.onReviewComments((reviewId, threads) => {
+  window.canvaflowMcp?.onReviewComments((reviewId, threads) => {
     useReviewStore.getState().addThreads(reviewId, threads as ReviewThread[])
   })
-  window.canvaflowMcp.onReviewReply((threadId, message) => {
+  window.canvaflowMcp?.onReviewReply((threadId, message) => {
     useReviewStore.getState().appendMessage(threadId, message as ReviewMessage)
   })
 }

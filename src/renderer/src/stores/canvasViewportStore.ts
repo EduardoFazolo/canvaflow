@@ -21,5 +21,5 @@ export function setCanvasViewport(left: number, top: number): void {
   useCanvasViewportStore.setState({ left, top })
   // Keep the main process in sync so it enforces the boundary when positioning
   // WebContentsViews — even if renderer IPC bounds are momentarily stale.
-  window.browser.setCanvasLeft(left)
+  window.browser?.setCanvasLeft(left)
 }
