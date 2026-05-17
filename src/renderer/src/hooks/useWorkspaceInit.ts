@@ -112,8 +112,10 @@ export function useWorkspaceInit(): void {
           lastOpenedAt: Date.now(),
           color: null,
           description: null,
+          archived: false,
+          sortOrder: 0,
         }
-        await api.workspace.save(defaultWs)
+        await api.workspace.save({ ...defaultWs, archived: 0, sortOrder: 0 })
         dbWorkspaces = [defaultWs]
         activeId = defaultWs.id
       }

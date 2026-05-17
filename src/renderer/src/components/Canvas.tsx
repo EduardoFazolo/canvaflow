@@ -11,6 +11,7 @@ import { ClusterLayer } from '../../../plugins/orchestrator/renderer/ClusterLaye
 import { CanvasContextMenu } from './CanvasContextMenu'
 import { createNotionNoteFromDrop, NotionCanvasDropPayload } from '../../../plugins/notion/utils/notionDrag'
 import { plugins } from '../../../plugins'
+import { Minimap } from './Minimap'
 
 export function Canvas(): React.ReactElement {
   const { camera, pan, zoomAt } = useCameraStore()
@@ -310,6 +311,8 @@ export function Canvas(): React.ReactElement {
           <ConnectionLayer />
           <NodeLayer />
         </CanvasOverlay>
+
+        <Minimap />
 
         {selectionRect && (
           <div

@@ -18,6 +18,19 @@ import { detectAgentStatusFromTerminalBuffer, detectAgentStatusFromTitle, saniti
 import { logAgentDebug, summarizeText } from '../../../modules/servers/agentic_signals/shared/debug'
 import '@xterm/xterm/css/xterm.css'
 
+let terminalRepairEpoch = 0
+
+function markTerminalsNeedLazyRepair(): void {
+  terminalRepairEpoch += 1
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', markTerminalsNeedLazyRepair)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') markTerminalsNeedLazyRepair()
+  })
+}
+
 interface Props {
   node: NodeData
 }
@@ -100,6 +113,10 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   const serializeAddonRef = useRef<SerializeAddon | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const renderInspectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingRepairTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingRepairRafRef = useRef<number | null>(null)
+  const mountRepairTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([])
+  const lastRepairEpochRef = useRef(terminalRepairEpoch)
   const baseFontSizeRef = useRef<number>(13)
   const statusBufferRef = useRef('')
   const isAtBottomRef = useRef(true)
@@ -107,6 +124,60 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   const focusedNodeIdRef = useRef(focusedNodeId)
   useEffect(() => { focusedNodeIdRef.current = focusedNodeId }, [focusedNodeId])
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
+
+  const refitTerminal = (reason: string) => {
+    const term = xtermRef.current
+    const fitAddon = fitAddonRef.current
+    if (!term || !fitAddon) return
+    try {
+      fitAddon.fit()
+      term.refresh(0, Math.max(0, term.rows - 1))
+      window.terminal.resize(node.id, term.cols, term.rows)
+      logAgentDebug('terminal-renderer', 'refit-terminal', {
+        nodeId: node.id,
+        reason,
+        cols: term.cols,
+        rows: term.rows,
+      })
+    } catch {}
+  }
+
+  const scheduleRefitTerminal = (reason: string) => {
+    if (pendingRepairRafRef.current !== null) {
+      cancelAnimationFrame(pendingRepairRafRef.current)
+      pendingRepairRafRef.current = null
+    }
+    if (pendingRepairTimerRef.current) {
+      clearTimeout(pendingRepairTimerRef.current)
+      pendingRepairTimerRef.current = null
+    }
+
+    pendingRepairRafRef.current = requestAnimationFrame(() => {
+      pendingRepairRafRef.current = null
+      refitTerminal(reason)
+      pendingRepairTimerRef.current = setTimeout(() => {
+        pendingRepairTimerRef.current = null
+        refitTerminal(`${reason}:settled`)
+      }, 80)
+    })
+  }
+
+  const scheduleSettledRefits = (reason: string) => {
+    scheduleRefitTerminal(reason)
+    for (const delay of [160, 520]) {
+      const timer = setTimeout(() => {
+        mountRepairTimersRef.current = mountRepairTimersRef.current.filter((t) => t !== timer)
+        scheduleRefitTerminal(`${reason}:${delay}ms`)
+      }, delay)
+      mountRepairTimersRef.current.push(timer)
+    }
+  }
+
+  const repairAfterWakeIfNeeded = (reason: string) => {
+    if (lastRepairEpochRef.current === terminalRepairEpoch) return
+    lastRepairEpochRef.current = terminalRepairEpoch
+    scheduleRefitTerminal(reason)
+  }
 
   useEffect(() => {
     if (!isActivated || !termRef.current) return
@@ -158,7 +229,18 @@ export function TerminalNode({ node }: Props): React.ReactElement {
       try {
         const { WebglAddon } = await import('@xterm/addon-webgl')
         const webglAddon = new WebglAddon()
-        webglAddon.onContextLoss(() => webglAddon.dispose())
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose()
+          markTerminalsNeedLazyRepair()
+          void import('@xterm/addon-canvas')
+            .then(({ CanvasAddon }) => {
+              if (xtermRef.current === term) {
+                term.loadAddon(new CanvasAddon())
+                scheduleSettledRefits('webgl-context-loss')
+              }
+            })
+            .catch(() => {})
+        })
         term.loadAddon(webglAddon)
       } catch {
         const { CanvasAddon } = await import('@xterm/addon-canvas')
@@ -170,6 +252,10 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     const restoreMousePatch = patchXtermMouseCoordinates(term)
     fitAddon.fit()
     loadRenderer()
+    scheduleSettledRefits('mount')
+
+    const ro = new ResizeObserver(() => scheduleRefitTerminal('host-resize'))
+    ro.observe(termRef.current)
 
     // Track whether the viewport is pinned to the bottom so we can
     // re-pin after writes (prevents the "jumps to top" bug on heavy output).
@@ -383,6 +469,11 @@ export function TerminalNode({ node }: Props): React.ReactElement {
 
       if (saveTimerRef.current) clearInterval(saveTimerRef.current)
       if (renderInspectTimerRef.current) clearTimeout(renderInspectTimerRef.current)
+      if (pendingRepairTimerRef.current) clearTimeout(pendingRepairTimerRef.current)
+      if (pendingRepairRafRef.current !== null) cancelAnimationFrame(pendingRepairRafRef.current)
+      for (const timer of mountRepairTimersRef.current) clearTimeout(timer)
+      mountRepairTimersRef.current = []
+      ro.disconnect()
 
       unsub()
       renderDisposable.dispose()
@@ -417,9 +508,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   useEffect(() => {
     if (!fitAddonRef.current || !xtermRef.current) return
     const timer = setTimeout(() => {
-      fitAddonRef.current?.fit()
-      const { cols, rows } = xtermRef.current!
-      window.terminal.resize(node.id, cols, rows)
+      refitTerminal('node-size')
     }, 50)
     return () => clearTimeout(timer)
   }, [node.width, node.height, node.id])
@@ -428,9 +517,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   useEffect(() => {
     if (!xtermRef.current || !fitAddonRef.current) return
     xtermRef.current.options.fontSize = baseFontSizeRef.current * (node.contentScale ?? 1)
-    fitAddonRef.current.fit()
-    const { cols, rows } = xtermRef.current
-    window.terminal.resize(node.id, cols, rows)
+    refitTerminal('content-scale')
   }, [node.contentScale, node.id])
 
   return (
@@ -438,7 +525,12 @@ export function TerminalNode({ node }: Props): React.ReactElement {
           <div
             ref={containerRef}
             style={{ width: '100%', height: node.height - 32, padding: isActivated ? '6px 8px' : 0, boxSizing: 'border-box', position: 'relative' }}
-            onPointerDown={(e) => { useActivationStore.getState().activateNow(node.id); e.stopPropagation() }}
+            onPointerDown={(e) => {
+              useActivationStore.getState().activateNow(node.id)
+              scheduleSettledRefits('pointer-down')
+              repairAfterWakeIfNeeded('pointer-down')
+              e.stopPropagation()
+            }}
             onContextMenu={async (e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -466,7 +558,12 @@ export function TerminalNode({ node }: Props): React.ReactElement {
                   onPointerDown={(e) => {
                     e.stopPropagation()
                     setFocusedNodeId(node.id)
-                    setTimeout(() => xtermRef.current?.focus(), 0)
+                    scheduleSettledRefits('focus-overlay')
+                    repairAfterWakeIfNeeded('focus-overlay')
+                    setTimeout(() => {
+                      xtermRef.current?.focus()
+                      repairAfterWakeIfNeeded('focus-overlay:settled')
+                    }, 0)
                   }}
                 />
               )}

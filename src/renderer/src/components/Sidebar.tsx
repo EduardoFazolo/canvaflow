@@ -200,8 +200,10 @@ export function AddWorkspaceDialog({ onClose, initialPath = '' }: { onClose: () 
       lastOpenedAt: Date.now(),
       color: null,
       description: null,
+      archived: false,
+      sortOrder: 0,
     }
-    await window.workspace.save(ws)
+    await window.workspace.save({ ...ws, archived: 0, sortOrder: 0 })
     useWorkspaceStore.setState((s) => ({
       workspaces: [...s.workspaces, ws],
       activeId: ws.id,
