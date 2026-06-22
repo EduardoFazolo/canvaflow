@@ -8,6 +8,7 @@ import { useCameraStore } from '../stores/cameraStore'
 import { loadWorkspaceCanvas } from '../hooks/useWorkspaceInit'
 import { getCanvasRect } from '../utils/canvasUtils'
 import { getSidebarAgentStatusUi } from '../../../modules/servers/agentic_signals/renderer/sidebarStatusUi'
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from './ui/context-menu'
 import {
   Terminal,
   Globe,
@@ -326,6 +327,7 @@ interface SectionProps {
   onSwitch: () => void
   onDelete: () => void
   onArchive: () => void
+  onRename: (name: string) => void
   privacyMode: boolean
   isDragging?: boolean
   isDragOver?: boolean
@@ -337,15 +339,26 @@ interface SectionProps {
   onDragEnd?: () => void
 }
 
-function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onArchive, privacyMode,
+function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onArchive, onRename, privacyMode,
   isDragging, isDragOver, dragOverPos, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd }: SectionProps): React.ReactElement {
   const [open, setOpen] = useState(isActive)
   const [headerHovered, setHeaderHovered] = useState(false)
   const [deleteHovered, setDeleteHovered] = useState(false)
   const [archiveHovered, setArchiveHovered] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [nameVal, setNameVal] = useState(workspace.name)
+  const renameRef = useRef<HTMLInputElement>(null)
 
   // Auto-expand when becoming active
   useEffect(() => { if (isActive) setOpen(true) }, [isActive])
+  useEffect(() => { if (renaming && renameRef.current) renameRef.current.select() }, [renaming])
+
+  const startRename = () => { setNameVal(workspace.name); setRenaming(true) }
+  const commitRename = () => {
+    const trimmed = nameVal.trim()
+    if (trimmed && trimmed !== workspace.name) onRename(trimmed)
+    setRenaming(false)
+  }
 
   return (
     <div
@@ -357,8 +370,10 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onAr
         <div style={{ position: 'absolute', top: 0, left: 8, right: 8, height: 2, background: '#a78bfa', borderRadius: 1, zIndex: 10, pointerEvents: 'none' }} />
       )}
       {/* Workspace header row */}
+      <ContextMenu>
+      <ContextMenuTrigger>
       <div
-        draggable
+        draggable={!renaming}
         style={{
           display: 'flex', alignItems: 'center', gap: 5,
           height: 30, padding: '0 10px 0 8px',
@@ -374,7 +389,8 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onAr
         }}
         onMouseEnter={() => setHeaderHovered(true)}
         onMouseLeave={() => setHeaderHovered(false)}
-        onClick={() => { setOpen((o) => !o); if (!isActive) onSwitch() }}
+        onClick={() => { if (renaming) return; setOpen((o) => !o); if (!isActive) onSwitch() }}
+        onDoubleClick={(e) => { e.stopPropagation(); startRename() }}
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
         onDragOver={(e) => {
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -403,21 +419,42 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onAr
           <WorkspaceIcon path={workspace.path} open={open} />
         </span>
 
-        <span style={{
-          flex: 1, fontSize: 12, fontWeight: isActive ? 500 : 400,
-          color: isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.5)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          letterSpacing: '0.01em',
-        }}>
-          {privacyMode && !isActive ? (
-            <>
-              {workspace.name.slice(0, 3)}
-              <span style={{ filter: 'blur(4px)', userSelect: 'none' }}>
-                {workspace.name.slice(3)}
-              </span>
-            </>
-          ) : workspace.name}
-        </span>
+        {renaming ? (
+          <input
+            ref={renameRef}
+            value={nameVal}
+            onChange={(e) => setNameVal(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename()
+              if (e.key === 'Escape') setRenaming(false)
+            }}
+            onBlur={commitRename}
+            style={{
+              flex: 1, height: 19, borderRadius: 3,
+              border: '1px solid rgba(167,139,250,0.4)',
+              background: 'rgba(255,255,255,0.06)',
+              color: 'rgba(255,255,255,0.85)', fontSize: 12,
+              padding: '0 5px', outline: 'none', fontFamily: 'inherit',
+            }}
+          />
+        ) : (
+          <span style={{
+            flex: 1, fontSize: 12, fontWeight: isActive ? 500 : 400,
+            color: isActive ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.5)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            letterSpacing: '0.01em',
+          }}>
+            {privacyMode && !isActive ? (
+              <>
+                {workspace.name.slice(0, 3)}
+                <span style={{ filter: 'blur(4px)', userSelect: 'none' }}>
+                  {workspace.name.slice(3)}
+                </span>
+              </>
+            ) : workspace.name}
+          </span>
+        )}
 
         {/* Archive + Delete buttons — only on hover */}
         {headerHovered && (
@@ -456,6 +493,14 @@ function WorkspaceSection({ workspace, isActive, nodes, onSwitch, onDelete, onAr
           </>
         )}
       </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={startRename}>Rename</ContextMenuItem>
+        <ContextMenuItem onClick={onArchive}>{workspace.archived ? 'Unarchive' : 'Archive'}</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem destructive onClick={onDelete}>Delete</ContextMenuItem>
+      </ContextMenuContent>
+      </ContextMenu>
 
       {/* Node items */}
       {open && (
@@ -615,7 +660,7 @@ function NodeItem({ node, workspaceActive, onSwitchWorkspace, workspaceId }: {
 // ---------------------------------------------------------------------------
 
 export function Sidebar(): React.ReactElement {
-  const { workspaces, activeId, setActive, removeWorkspace, touchWorkspace, archiveWorkspace, reorderWorkspaces, nodeSummaries, setNodeSummaries } =
+  const { workspaces, activeId, setActive, removeWorkspace, touchWorkspace, archiveWorkspace, renameWorkspace, reorderWorkspaces, nodeSummaries, setNodeSummaries } =
     useWorkspaceStore()
   const { templates, loaded: templatesLoaded, load: loadTemplates, remove: removeTemplate,
     draggingOverSidebar, draggedTemplate, dragGhostPos,
@@ -698,6 +743,12 @@ export function Sidebar(): React.ReactElement {
     if (ws) await window.workspace.save({ ...ws, archived: archived ? 1 : 0, description: ws.description ?? null, color: ws.color ?? null, sortOrder: ws.sortOrder ?? 0 })
   }
 
+  const handleRename = async (id: string, name: string) => {
+    renameWorkspace(id, name)
+    const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === id)
+    if (ws) await window.workspace.save({ ...ws, name, archived: ws.archived ? 1 : 0, description: ws.description ?? null, color: ws.color ?? null, sortOrder: ws.sortOrder ?? 0 })
+  }
+
   const handleReorder = async (list: Workspace[], fromId: string, toId: string, pos: 'before' | 'after') => {
     const fromIdx = list.findIndex((w) => w.id === fromId)
     const toIdx = list.findIndex((w) => w.id === toId)
@@ -765,6 +816,7 @@ export function Sidebar(): React.ReactElement {
               onSwitch={() => handleSwitch(ws.id)}
               onDelete={() => setConfirmDeleteId(ws.id)}
               onArchive={() => handleArchive(ws.id, true)}
+              onRename={(name) => handleRename(ws.id, name)}
               privacyMode={privacyMode}
               isDragging={draggedId === ws.id}
               isDragOver={dragOverId === ws.id}
@@ -814,6 +866,7 @@ export function Sidebar(): React.ReactElement {
                   onSwitch={() => handleSwitch(ws.id)}
                   onDelete={() => setConfirmDeleteId(ws.id)}
                   onArchive={() => handleArchive(ws.id, false)}
+                  onRename={(name) => handleRename(ws.id, name)}
                   privacyMode={privacyMode}
                 />
               ))}

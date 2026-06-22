@@ -66,6 +66,9 @@ export function runOrchestrator(
     ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'],
     {
       shell: true,
+      // Own process group so we can signal the whole tree (shell → claude → bun
+      // MCP servers) on cancel/quit instead of orphaning the grandchildren.
+      detached: true,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     },
@@ -291,10 +294,26 @@ function parseAgentResponse(raw: string): SubagentDef[] | string {
   }
 }
 
+// Kill the whole process group (shell → claude → bun MCP), not just the leader.
+function killRun(proc: ReturnType<typeof spawn>): void {
+  if (proc.pid) {
+    try { process.kill(-proc.pid, 'SIGTERM') } catch {
+      try { process.kill(proc.pid, 'SIGTERM') } catch {}
+    }
+  }
+  try { proc.kill() } catch {}
+}
+
 export function cancelOrchestrator(orchestratorId: string): void {
   const proc = activeRuns.get(orchestratorId)
   if (proc) {
-    proc.kill()
+    killRun(proc)
     activeRuns.delete(orchestratorId)
   }
+}
+
+// Cleanup hook for app quit — tear down every in-flight orchestrator run.
+export function killAllOrchestrators(): void {
+  for (const proc of activeRuns.values()) killRun(proc)
+  activeRuns.clear()
 }

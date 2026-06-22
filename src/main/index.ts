@@ -15,6 +15,7 @@ import { registerTrelloHandlers } from '../plugins/trello/main/handlers'
 import { registerGitHandlers } from '../plugins/monaco/main/gitHandlers'
 import { registerLovableHandlers } from '../plugins/lovable/main/handlers'
 import { registerOrchestratorHandlers } from '../plugins/orchestrator/main/handlers'
+import { killAllOrchestrators } from '../plugins/orchestrator/main/runner'
 import { registerWindowPickerHandlers } from '../plugins/windowpicker/main/handlers'
 import { startCanvaflowMcpBridge } from '../modules/servers/canvaflow_mcp/main/server'
 
@@ -301,6 +302,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', killAllPtys)
+// Tear down every spawned process tree on quit so MCP servers (claude/codex →
+// bun) and orchestrator runs don't linger as orphans after the app closes.
+app.on('before-quit', () => {
+  killAllPtys()
+  killAllOrchestrators()
+})
 
 export { mainWindow }

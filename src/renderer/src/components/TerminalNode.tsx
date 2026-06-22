@@ -125,13 +125,56 @@ export function TerminalNode({ node }: Props): React.ReactElement {
   useEffect(() => { focusedNodeIdRef.current = focusedNodeId }, [focusedNodeId])
   const isActivated = useActivationStore((s) => !!s.activated[node.id])
 
-  const refitTerminal = (reason: string) => {
+  const hasSaneTerminalHost = (): boolean => {
+    const host = termRef.current
+    if (!host) return false
+    if (document.visibilityState === 'hidden') return false
+
+    const layoutWidth = host.clientWidth
+    const layoutHeight = host.clientHeight
+    const expectedWidth = Math.max(120, node.width - 16)
+    const expectedHeight = Math.max(80, node.height - 44)
+
+    // During macOS sleep/wake Chromium can briefly report a tiny canvas/host
+    // size. Letting that resize the PTY makes agent output hard-wrap forever.
+    if (layoutWidth < expectedWidth * 0.6) return false
+    if (layoutHeight < expectedHeight * 0.6) return false
+    return true
+  }
+
+  const isSaneTerminalFit = (cols: number, rows: number): boolean => {
+    if (!hasSaneTerminalHost()) return false
+    if (cols < 20 || rows < 8) return false
+    return true
+  }
+
+  const refitTerminal = (reason: string): boolean => {
     const term = xtermRef.current
     const fitAddon = fitAddonRef.current
-    if (!term || !fitAddon) return
+    if (!term || !fitAddon) return false
     try {
+      if (!hasSaneTerminalHost()) {
+        logAgentDebug('terminal-renderer', 'skip-insane-host-refit', {
+          nodeId: node.id,
+          reason,
+          hostWidth: termRef.current?.clientWidth ?? 0,
+          hostHeight: termRef.current?.clientHeight ?? 0,
+        })
+        return false
+      }
       fitAddon.fit()
       term.refresh(0, Math.max(0, term.rows - 1))
+      if (!isSaneTerminalFit(term.cols, term.rows)) {
+        logAgentDebug('terminal-renderer', 'skip-insane-refit', {
+          nodeId: node.id,
+          reason,
+          cols: term.cols,
+          rows: term.rows,
+          hostWidth: termRef.current?.clientWidth ?? 0,
+          hostHeight: termRef.current?.clientHeight ?? 0,
+        })
+        return false
+      }
       window.terminal.resize(node.id, term.cols, term.rows)
       logAgentDebug('terminal-renderer', 'refit-terminal', {
         nodeId: node.id,
@@ -139,7 +182,23 @@ export function TerminalNode({ node }: Props): React.ReactElement {
         cols: term.cols,
         rows: term.rows,
       })
-    } catch {}
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const fitBeforeCreate = (): boolean => {
+    const term = xtermRef.current
+    const fitAddon = fitAddonRef.current
+    if (!term || !fitAddon) return false
+    try {
+      if (!hasSaneTerminalHost()) return false
+      fitAddon.fit()
+      return isSaneTerminalFit(term.cols, term.rows)
+    } catch {
+      return false
+    }
   }
 
   const scheduleRefitTerminal = (reason: string) => {
@@ -181,6 +240,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
 
   useEffect(() => {
     if (!isActivated || !termRef.current) return
+    let cancelled = false
 
     const workspaceId = useWorkspaceStore.getState().activeId || ''
 
@@ -250,9 +310,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
 
     term.open(termRef.current)
     const restoreMousePatch = patchXtermMouseCoordinates(term)
-    fitAddon.fit()
     loadRenderer()
-    scheduleSettledRefits('mount')
 
     const ro = new ResizeObserver(() => scheduleRefitTerminal('host-resize'))
     ro.observe(termRef.current)
@@ -270,6 +328,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     xtermRef.current = term
     fitAddonRef.current = fitAddon
     serializeAddonRef.current = serializeAddon
+    scheduleSettledRefits('mount')
 
     const inspectRenderedScreen = (reason: string) => {
       const active = term.buffer.active
@@ -345,7 +404,21 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     // triggers Claude Code's "trust this folder?" dialog for every spawn.
     const cwd = (node.props.cwd as string) || getActiveCwd()
     const shell = (node.props.shell as string) || appSettings.shell
-    window.terminal.create(node.id, workspaceId, cwd, shell, term.cols, term.rows)
+    const createTerminalWhenFitIsStable = (attempt = 0): void => {
+      if (cancelled || xtermRef.current !== term) return
+      if (!fitBeforeCreate()) {
+        if (attempt < 8) {
+          const timer = setTimeout(() => {
+            mountRepairTimersRef.current = mountRepairTimersRef.current.filter((t) => t !== timer)
+            createTerminalWhenFitIsStable(attempt + 1)
+          }, 50)
+          mountRepairTimersRef.current.push(timer)
+          return
+        }
+      }
+      window.terminal.create(node.id, workspaceId, cwd, shell, term.cols, term.rows)
+      scheduleSettledRefits('post-create')
+    }
 
     // PTY → xterm (also signals activity to the navbar indicator)
     const unsub = window.terminal.onData(node.id, (data) => {
@@ -394,6 +467,8 @@ export function TerminalNode({ node }: Props): React.ReactElement {
       }
       window.terminal.write(node.id, data)
     })
+
+    createTerminalWhenFitIsStable()
 
     // OSC 7: shell reports CWD as file://hostname/path
     // Most modern shells (zsh+oh-my-zsh, fish, bash with vte) emit this on every cd
@@ -459,6 +534,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
     }, 5_000)
 
     return () => {
+      cancelled = true
       unregisterTerminal(node.id)
 
       // Workspace switch: node is already removed from store, write directly to DB
@@ -541,7 +617,7 @@ export function TerminalNode({ node }: Props): React.ReactElement {
                 navigator.clipboard.writeText(term.getSelection())
               } else if (action === 'paste') {
                 const text = await navigator.clipboard.readText()
-                if (text) window.terminal.write(node.id, text)
+                if (text) term.paste(text)
               } else if (action === 'selectAll') {
                 term.selectAll()
               } else if (action === 'clear') {

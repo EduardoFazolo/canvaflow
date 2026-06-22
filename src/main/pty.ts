@@ -341,6 +341,7 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
         clearTimeout(idleTimer)
         idleTimers.delete(id)
       }
+      killProcessTree(proc.pid, 'SIGTERM')
       try { proc.kill() } catch {}
       ptys.delete(id)
     }
@@ -352,8 +353,30 @@ export function setupPtyHandlers(getWebContents: () => WebContents | null): void
   })
 }
 
+/**
+ * Kill an entire process tree, not just its leader.
+ *
+ * node-pty runs each shell in its own session (setsid), so the shell PID is also
+ * the process-group leader. Signalling the negative PID delivers to every process
+ * in that group — the shell, the `claude`/`codex` it exec'd, AND the `bun` MCP
+ * servers those agents spawned. A plain `proc.kill()` only hits the leader, which
+ * is why MCP grandchildren were getting orphaned and lingering after quit.
+ */
+export function killProcessTree(pid: number, signal: NodeJS.Signals = 'SIGTERM'): void {
+  if (!pid) return
+  try {
+    process.kill(-pid, signal) // negative PID = whole process group
+  } catch {
+    // Not a group leader (or already gone) — fall back to the single PID.
+    try { process.kill(pid, signal) } catch {}
+  }
+}
+
 export function killAllPtys(): void {
   for (const proc of ptys.values()) {
+    // Group SIGTERM first so the agent + its MCP children get the signal,
+    // then let node-pty tear down the master FD.
+    killProcessTree(proc.pid, 'SIGTERM')
     try { proc.kill() } catch {}
   }
   ptys.clear()
